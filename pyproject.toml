@@ -3,6 +3,8 @@ requires = [
     "pandas",
     "openpyxl",
     "scikit-learn",
+    "setuptools",
+    "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
