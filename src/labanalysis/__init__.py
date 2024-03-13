@@ -6,11 +6,6 @@ data processing.
 
 Libraries
 ---------
-io
-    a library containing functions to read specifically formatted files
-    such as BtsBioengineering tdf and emt formats or Cosmed-formatted xlsx
-    files
-
 regression
     a library wrapping scikit-learn regression estimators.
 
@@ -23,8 +18,6 @@ utils
     module containing several utilities that can be used for multiple purposes
 """
 
-from .io import *
 from .signalprocessing import *
 from .utils import *
 from .regression import *
-from .biostrength import *
