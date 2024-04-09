@@ -1,3 +1,4 @@
-pandas
+labio @ git+https://github.com/ZofTG/labio.git@74e4007502360a432116c092810d721e2324382d
 openpyxl
 scikit-learn
+matplotlib
