@@ -79,6 +79,14 @@ class Isokinetic1RM:
             return None
         return float(np.max(loads))
 
+    def calculate_1rm(self):
+        """return the predicted 1RM"""
+        load = self.peak_load
+        if load is None:
+            return None
+        a, b = self.product.rm1_coefs  # type: ignore
+        return a * load + b
+
     @property
     def product(self):
         return self._product
