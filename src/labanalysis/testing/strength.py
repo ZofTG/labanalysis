@@ -139,8 +139,8 @@ class Isokinetic1RM:
         # get the velocity
         vel = winter_derivative1(position)
         fvel = butterworth_filt(vel, 0.05, 1, 4, "lowpass", True)
-        vpks = rslib.find_peaks(fvel, 0)  # type: ignore
-        vmns = rslib.find_peaks(-fvel)  # type: ignore
+        vpks = find_peaks(fvel, 0)  # type: ignore
+        vmns = find_peaks(-fvel)  # type: ignore
 
         # get the position
         fpos = butterworth_filt(position, 0.05, 1, 4, "lowpass", True)
