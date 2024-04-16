@@ -115,15 +115,23 @@ class Isokinetic1RM:
             respectively the starting and stopping samples of the rep.
         """
 
-        # smooth the signal at 3 times of the fundamental frequency
+        # smooth the signal
         ffor = butterworth_filt(force, 0.05, 1, 4, "lowpass", True)
 
         # get the local maxima having amplitude above 75% of the midrange
         # and being separated by twice of the ffun samples
         qt1 = np.min(ffor) + 0.75 * (np.max(ffor) - np.min(ffor))
-        pks = find_peaks(ffor, qt1, 150)  # type: ignore
 
-        # get the contiguous batches beyond the 10% of the peaks amplitude
+        # find the 3 most relevant peaks
+        nsamp = len(ffor) // 3
+        pks = []
+        while nsamp > 1 and len(pks) < 3:
+            nsamp -= 1
+            pks = find_peaks(ffor, qt1, nsamp)  # type: ignore
+        if len(pks) == 0:
+            return None
+
+        # get the contiguous batches beyond the 20% of the peaks amplitude
         minv = np.min(ffor[pks[0] : pks[-1]])
         maxv = np.max(ffor[pks[0] : pks[-1]])
         thr = minv + (maxv - minv) * 0.2
@@ -306,10 +314,12 @@ class Isokinetic1RM:
             force = np.array(self.product.load_kgf)
             position = np.array(self.product.position_m)
             if force is not None:
-                for start, stop in self._find_repetitions(force, position):
-                    lbl = f"REP{len(self._repetitions) + 1}"
-                    val = self.product.slice(start, stop)
-                    self._repetitions[lbl] = val
+                reps = self._find_repetitions(force, position)
+                if reps is not None:
+                    for start, stop in reps:
+                        lbl = f"REP{len(self._repetitions) + 1}"
+                        val = self.product.slice(start, stop)
+                        self._repetitions[lbl] = val
         reps = list(self.repetitions.values())
         self._peak_load = np.nan
         if len(reps) > 0:
