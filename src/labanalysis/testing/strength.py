@@ -10,12 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from labio.read.biostrength import Product
 
-from ..signalprocessing import (
-    butterworth_filt,
-    continuous_batches,
-    winter_derivative1,
-    find_peaks,
-)
+from ..signalprocessing import butterworth_filt, find_peaks
 from ..utils import magnitude
 
 
@@ -119,8 +114,8 @@ class Isokinetic1RM:
             respectively the starting and stopping samples of the rep.
         """
         prange = np.max(position) - np.min(position)
-        thr1 = 0.75 * prange + np.min(position)
-        thr2 = 0.1 * prange + np.min(position)
+        thr1 = float(0.75 * prange + np.min(position))
+        thr2 = float(0.1 * prange + np.min(position))
         dis = int(round(1 / np.mean(np.diff(time))))
         ppks = find_peaks(position, thr1, dis)
         mmns = find_peaks(-position, -thr1)
@@ -272,9 +267,9 @@ class Isokinetic1RM:
 
     def __init__(self, product: Product):
         self._product = product
-        fsamp = 1 / np.mean(np.diff(self._product.time_s))
+        fsamp = 1 / np.mean(np.diff(np.array(self._product.time_s)))
         self._product._raw_position_rad = butterworth_filt(
-            arr=self._product._raw_position_rad,
+            arr=np.array(self._product.raw_position_rad),
             fcut=1,
             fsamp=fsamp,
             order=6,
@@ -282,7 +277,7 @@ class Isokinetic1RM:
             phase_corrected=True,
         )
         self._product._raw_torque_nm = butterworth_filt(
-            arr=self._product._raw_torque_nm,
+            arr=self._product.raw_torque_nm,
             fcut=1,
             fsamp=fsamp,
             order=6,

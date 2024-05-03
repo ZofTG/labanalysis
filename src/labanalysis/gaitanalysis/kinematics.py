@@ -113,7 +113,7 @@ def find_gait_events(
     if not isinstance(preprocess, bool):
         raise TypeError("preprocess must be True or False")
 
-    # check helght_thresh
+    # check height_thresh
     if not isinstance(height_thresh, (int, float)):
         raise ValueError("height_thresh must be an int or float.")
 
@@ -232,72 +232,3 @@ def find_gait_events(
                 strides += [WalkingStride(st1, st2)]
 
     return steps, strides
-
-
-"""
-    # get biofeedback
-    out_list = [
-        _get_biofeedback(
-            time=ftime,
-            vforce=fvrt,  # type: ignore
-            copx=cop_x,  # type: ignore
-            cycle1=a,
-            cycle2=b,
-        )
-        for a, b in zip(cycles[:-1], cycles[1:])
-    ]
-    dfr = pd.concat(out_list, ignore_index=True).describe([])
-
-    # initialize the output figure
-    lines = {
-        "GRF": (ftime, fvrt / np.max(fvrt)),
-        "COP<sub>X</sub>": (ftime, cop_x / np.max(abs(cop_x))),  # type: ignore
-        **{i: (mtime, v / np.max(v)) for i, v in vcoords.items()},
-    }
-    fig = go.Figure()
-    for i, v in lines.items():
-        fig.add_trace(go.Scatter(x=v[0], y=v[1], mode="lines", name=i))
-
-    # plot the events
-    labels = list(pool.values())
-    times = list(pool.keys())
-    events = np.arange(len(pool))
-    phases = {}
-    for i0, i1 in zip(events[:-1], events[1:]):
-        side0, lbl0 = labels[i0].split(" ")
-        side1, lbl1 = labels[i1].split(" ")
-        if lbl0 == "foot-strike" and lbl1 == "mid-stance" and side0 == side1:
-            name = " ".join([side0, "load-response"])
-        elif lbl0 == "foot-strike" and lbl1 == "toe-off" and side0 != side1:
-            name = " ".join([side0, "double-support"])
-        elif lbl0 == "mid-stance" and lbl1 == "toe-off" and side0 == side1:
-            name = " ".join([side0, "propulsion"])
-        elif lbl0 == "toe-off" and lbl1 == "foot-strike" and side0 != side1:
-            name = " ".join([side0, "flight"])
-        elif lbl0 == "toe-off" and lbl1 == "mid-stance" and side0 != side1:
-            name = " ".join([side0, "single-support"])
-        elif lbl0 == "mid-stance" and lbl1 == "foot-strike" and side0 != side1:
-            name = " ".join([side0, "double-support"])
-        else:
-            name = ""
-        if name != "":
-            if not any(i == name for i in phases):
-                phases[name] = [(times[i0], times[i1])]
-            else:
-                phases[name] += [(times[i0], times[i1])]
-    clrs = list(phases.keys())
-    clrs = {v: cmap[i + len(lines)] for i, v in enumerate(clrs)}
-    for phase, evts in phases.items():
-        for t0, t1 in evts:
-            fig.add_vrect(
-                x0=t0,
-                x1=t1,
-                line_width=0,
-                fillcolor=clrs[phase],
-                opacity=0.2,
-                name=phase,
-                legendgroup=phase,
-            )
-
-    return dfr, fig
-"""
