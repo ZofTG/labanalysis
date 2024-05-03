@@ -13,8 +13,8 @@ from labio.read.biostrength import Product
 from ..signalprocessing import (
     butterworth_filt,
     continuous_batches,
-    find_peaks,
     winter_derivative1,
+    find_peaks,
 )
 from ..utils import magnitude
 
@@ -93,6 +93,7 @@ class Isokinetic1RM:
 
     def _find_repetitions(
         self,
+        time: np.ndarray[Literal[1], np.dtype[np.float_]],
         force: np.ndarray[Literal[1], np.dtype[np.float_]],
         position: np.ndarray[Literal[1], np.dtype[np.float_]],
     ):
@@ -102,6 +103,9 @@ class Isokinetic1RM:
 
         Parameters
         ----------
+        time : np.ndarray[Any, np.dtype[np.float_]]
+            the force readings resulting from processed biodrive data
+
         force : np.ndarray[Any, np.dtype[np.float_]]
             the force readings resulting from processed biodrive data
 
@@ -114,71 +118,32 @@ class Isokinetic1RM:
             a Nx2 array where each row denotes a repetition and the columns
             respectively the starting and stopping samples of the rep.
         """
-
-        # smooth the signal
-        ffor = butterworth_filt(force, 0.05, 1, 4, "lowpass", True)
-
-        # get the local maxima having amplitude above 75% of the midrange
-        # and being separated by twice of the ffun samples
-        qt1 = np.min(ffor) + 0.75 * (np.max(ffor) - np.min(ffor))
-
-        # find the 3 most relevant peaks
-        nsamp = len(ffor) // 3
-        pks = []
-        while nsamp > 1 and len(pks) < 3:
-            nsamp -= 1
-            pks = find_peaks(ffor, qt1, nsamp)  # type: ignore
-        if len(pks) == 0:
-            return None
-
-        # get the contiguous batches beyond the 20% of the peaks amplitude
-        minv = np.min(ffor[pks[0] : pks[-1]])
-        maxv = np.max(ffor[pks[0] : pks[-1]])
-        thr = minv + (maxv - minv) * 0.2
-        batches = continuous_batches(ffor >= thr)
-
-        # keep those batches containing the peaks
-        batches = [i for i in batches if any([j in i for j in pks])]
-
-        # get the local or absolute minima
-        mns = find_peaks(-force)
-        mns = np.sort(np.append(mns, np.where(force == np.min(force))[0]))
-
-        # get the velocity
-        vel = winter_derivative1(position)
-        fvel = butterworth_filt(vel, 0.05, 1, 4, "lowpass", True)
-        vpks = find_peaks(fvel, 0)  # type: ignore
-        vmns = find_peaks(-fvel)  # type: ignore
-
-        # get the position
-        fpos = butterworth_filt(position, 0.05, 1, 4, "lowpass", True)
-
-        # get the repetitions start and stop
+        prange = np.max(position) - np.min(position)
+        thr1 = 0.75 * prange + np.min(position)
+        thr2 = 0.1 * prange + np.min(position)
+        dis = int(round(1 / np.mean(np.diff(time))))
+        ppks = find_peaks(position, thr1, dis)
+        mmns = find_peaks(-position, -thr1)
         reps = []
-        for batch in batches:
-            # get the last force crossing point before the peak
-            pre = mns[mns < batch[0]]
-            if len(pre) == 0:
-                continue
-            pre = pre[-1]
-            pre = vpks[vpks > pre][0]
-            pre = vmns[vmns > pre][0]
+        for ppk in ppks:
+            if len(reps) == 0:
+                start = np.where(position[:ppk] < thr2)[0]
+                start = start[-1] if len(start) > 0 else np.argmin(position[:ppk])
+            else:
+                start = mmns[mmns < ppk][-1]
+            stop = ppk
+            reps += [[start, stop]]
+        reps = np.atleast_2d(reps).astype(int)
 
-            # get the first force crossing point after the peak
-            post = mns[mns > batch[-1]]
-            if len(post) == 0:
-                continue
-            post = post[0]
-            post = np.argmax(fpos[pre:post]) + pre
+        # remove those reps having same start or stop
+        for i in np.arange(2):
+            reps = reps[np.unique(reps[:, i], return_index=True)[1]]
 
-            # add the repetition
-            reps += [[pre, post]]
+        # get at most the 3 reps with the highest force output
+        idx = np.argsort([np.max(force[np.arange(i[0], i[1])]) for i in reps])
+        reps = reps[np.sort(idx[-3:]), :]
 
-        # keep at most the 3 repetitions reaching the highest amplitude
-        reps = np.unique(np.atleast_2d(reps), axis=0)
-        idx = np.argsort(ffor[reps[:, 1]])[::-1]
-        reps = reps[idx[:3]]
-        return reps[np.argsort(reps[:, 1])]
+        return reps
 
     def _get_bounds(
         self,
@@ -197,7 +162,7 @@ class Isokinetic1RM:
         """generate a figure representing the test data"""
         # figure
         fig, axs = plt.subplots(2, 1)
-        cmap = pl.get_cmap("tab10")  # type: ignore
+        cmap = plt.get_cmap("tab10")  # type: ignore
 
         # add data
         axs[0].plot(
@@ -307,14 +272,32 @@ class Isokinetic1RM:
 
     def __init__(self, product: Product):
         self._product = product
+        fsamp = 1 / np.mean(np.diff(self._product.time_s))
+        self._product._raw_position_rad = butterworth_filt(
+            arr=self._product._raw_position_rad,
+            fcut=1,
+            fsamp=fsamp,
+            order=6,
+            ftype="lowpass",
+            phase_corrected=True,
+        )
+        self._product._raw_torque_nm = butterworth_filt(
+            arr=self._product._raw_torque_nm,
+            fcut=1,
+            fsamp=fsamp,
+            order=6,
+            ftype="lowpass",
+            phase_corrected=True,
+        )
 
         # get the peak load and position (if possible)
         self._repetitions = {}
         if not self.product.is_empty():
+            time = np.array(self.product.time_s)
             force = np.array(self.product.load_kgf)
             position = np.array(self.product.position_m)
             if force is not None:
-                reps = self._find_repetitions(force, position)
+                reps = self._find_repetitions(time, force, position)
                 if reps is not None:
                     for start, stop in reps:
                         lbl = f"REP{len(self._repetitions) + 1}"

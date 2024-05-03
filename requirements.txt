@@ -1,4 +1,4 @@
-labio @ git+https://github.com/ZofTG/labio.git@74e4007502360a432116c092810d721e2324382d
+labio @ git+https://github.com/ZofTG/labio.git
 openpyxl
 scikit-learn
 matplotlib
