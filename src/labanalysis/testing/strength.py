@@ -267,22 +267,26 @@ class Isokinetic1RM:
 
     def __init__(self, product: Product):
         self._product = product
-        fsamp = 1 / np.mean(np.diff(np.array(self._product.time_s)))
-        self._product._raw_position_rad = butterworth_filt(
-            arr=np.array(self._product.raw_position_rad),
-            fcut=1,
-            fsamp=fsamp,
-            order=6,
-            ftype="lowpass",
-            phase_corrected=True,
+        fsamp = float(1 / np.mean(np.diff(np.array(self._product.time_s))))
+        self._product.set_raw_position_rad(
+            butterworth_filt(
+                arr=np.array(self._product.raw_position_rad),
+                fcut=1,
+                fsamp=fsamp,
+                order=6,
+                ftype="lowpass",
+                phase_corrected=True,
+            ).tolist()  # type: ignore
         )
-        self._product._raw_torque_nm = butterworth_filt(
-            arr=self._product.raw_torque_nm,
-            fcut=1,
-            fsamp=fsamp,
-            order=6,
-            ftype="lowpass",
-            phase_corrected=True,
+        self._product.set_raw_torque_nm(
+            butterworth_filt(
+                arr=np.array(self._product.raw_torque_nm),
+                fcut=1,
+                fsamp=fsamp,
+                order=6,
+                ftype="lowpass",
+                phase_corrected=True,
+            ).tolist()  # type: ignore
         )
 
         # get the peak load and position (if possible)
