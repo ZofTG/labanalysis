@@ -3,7 +3,7 @@
 #! IMPORTS
 
 
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
 import numpy as np
 import pandas as pd
@@ -136,8 +136,19 @@ class _Step:
         """return the step side"""
         return self._side
 
-    def as_dict(self):
-        """return the current step as dict"""
+    def as_dict(self, user_weight_kg: float | int | None = None):
+        """
+        return the current step as dict
+
+        Parameters
+        ----------
+        user_weight_kg: float | int | None (optional, default = None)
+
+        Results
+        -------
+        out: dict[(str, str), None | int | float]
+            the output values
+        """
         keys = [i for i in dir(self) if i[0] != "_" and i[:2] != "as"]
         out = {}
         for i in keys:
@@ -145,7 +156,11 @@ class _Step:
             if isinstance(val, tuple):
                 out["time"] = val[1]
                 val = val[0]
-            out[i] = val
+            if isinstance(val, Callable) and user_weight_kg is not None:
+                out[i] = val(user_weight_kg)
+                out["user_weight_kg"] = user_weight_kg
+            else:
+                out[i] = val
         return out
 
     def __repr__(self):
