@@ -3,11 +3,14 @@
 #! IMPORTS
 
 
+from os.path import exists
+
 import numpy as np
 import pandas as pd
 
 from ..signalprocessing import continuous_batches, fillna
 from .events import RunningStep, RunningStride, WalkingStep, WalkingStride
+from labio import read_tdf
 
 
 #! CONSTANTS
@@ -311,3 +314,77 @@ class GaitTest:
                 & (sides[-1] != s0)
             ):  # walking
                 self._steps += [WalkingStep(*vals, side=s0.upper())]
+
+    @classmethod
+    def from_file(
+        cls,
+        file: str,
+        rheel_label: str = "rHeel",
+        lheel_label: str = "lHeel",
+        rtoe_label: str = "rToe",
+        ltoe_label: str = "lToe",
+        lmid_label: str | None = None,
+        rmid_label: str | None = None,
+        height_thresh: float | int = 0.02,
+    ):
+        """
+        Generate a GaitTest object directly from a .tdf file.
+
+        Parameters
+        ----------
+        file: str
+            the path to a ".tdf" file.
+
+        lheel_label: str (optional, default = "lHeel"),
+            the label of the marker defining the left heel in the tdf file.
+
+        rheel_label: str (optional, default = "lHeel"),
+            the label of the marker defining the right heel in the tdf file.
+
+        ltoe_label: str (optional, default = "lToe"),
+            the label of the marker defining the left toe in the tdf file.
+
+        rtoe_label: str (optional, default = "lToe"),
+            the label of the marker defining the right toe in the tdf file.
+
+        lmid_label: str | None (optional, default = None),
+            the label of the marker defining the right toe in the tdf file.
+
+        rmid_label: str | None (optional, default = None),
+            the label of the marker defining the right toe in the tdf file.
+
+        height_thresh: float | int = 0.02,
+            the minimum threshold in meters to be considered for assuming that
+            one foot is in contact to the ground.
+
+        Returns
+        -------
+        test: GaitTest
+            the GaitTest class object.
+        """
+        if not (exists(file) and isinstance(file, str)):
+            raise ValueError("file must be the path to an existing .tdf file.")
+        tdf = read_tdf(file)
+        try:
+            markers = tdf["CAMERA"]["TRACKED"]["TRACKS"]  # type: ignore
+        except Exception:
+            msg = "the Input file does not contain valid tracked data."
+            raise ValueError(msg)
+        labels = np.unique(markers.columns.get_level_values(0).astype(str))
+        required = {
+            "lheel": lheel_label,
+            "rheel": rheel_label,
+            "ltoe": ltoe_label,
+            "rtoe": rtoe_label,
+        }
+        if lmid_label is not None:
+            required["lmidfoot"] = lmid_label
+        if rmid_label is not None:
+            required["rmidfoot"] = rmid_label
+        for key, value in required.items():
+            if not np.any([i == key for i in labels]):
+                msg = f"{value} not found. The available labels are "
+                msg += f"{labels.tolist()}"
+                raise ValueError(msg)
+        required = {i: markers[v] for i, v in required.items()}
+        return cls(preprocess=True, height_thresh=height_thresh, **required)
