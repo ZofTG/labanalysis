@@ -396,7 +396,7 @@ class GaitTest:
         out = []
         for i, stride in enumerate(self.strides):
             line = pd.DataFrame(pd.Series(stride.as_dict())).T
-            line.insert(0, "Stride", [i + 1])
+            line.insert(0, ("Stride", "#"), [i + 1])
             out += [line]
         return pd.concat(out, ignore_index=True)
 
@@ -405,6 +405,6 @@ class GaitTest:
         out = []
         for i, step in enumerate(self.steps):
             line = pd.DataFrame(pd.Series(step.as_dict())).T
-            line.insert(0, "Step", [i + 1])
+            line.insert(0, ("Step", "#"), [i + 1])
             out += [line]
         return pd.concat(out, ignore_index=True)
