@@ -156,9 +156,12 @@ class _Step:
             if isinstance(val, tuple):
                 out["time"] = val[1]
                 val = val[0]
-            if isinstance(val, Callable) and user_weight_kg is not None:
-                out[i] = val(user_weight_kg)
-                out["user_weight_kg"] = user_weight_kg
+            if isinstance(val, Callable):
+                if user_weight_kg is not None:
+                    out[i] = val(user_weight_kg)
+                    out["user_weight_kg"] = user_weight_kg
+                else:
+                    out[i] = None
             else:
                 out[i] = val
         return out
