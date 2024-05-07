@@ -134,7 +134,7 @@ class GaitTest:
     @property
     def strides(self):
         """the detected strides"""
-        strides = []
+        strides: list[RunningStride | WalkingStride] = []
         for st1, st2 in zip(self._steps[:-1], self._steps[1:]):
             if (
                 st1.landing_s == st2.foot_strike_s
@@ -291,7 +291,7 @@ class GaitTest:
         evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
 
         # get the steps
-        self._steps = []
+        self._steps: list[RunningStep | WalkingStep] = []
         run_seq = ["FS", "MS", "TO", "LD"]
         walk_seq = ["FS", "TO", "MS", "LD"]
         for n in np.arange(0, len(evts_lbl) - 4, 3):
@@ -387,4 +387,24 @@ class GaitTest:
                 msg += f"{labels.tolist()}"
                 raise ValueError(msg)
         required = {i: markers[v] for i, v in required.items()}
-        return cls(preprocess=True, height_thresh=height_thresh, **required)
+        obj = cls(preprocess=True, height_thresh=height_thresh, **required)
+        obj._source_file = file
+        return obj
+
+    def strides_summary(self):
+        """return a summary of the collected strides"""
+        out = []
+        for i, stride in enumerate(self.strides):
+            line = pd.DataFrame(pd.Series(stride.as_dict())).T
+            line.insert(0, "Stride", [i + 1])
+            out += [line]
+        return pd.concat(out, ignore_index=True)
+
+    def steps_summary(self):
+        """return a summary of the collected steps"""
+        out = []
+        for i, step in enumerate(self.steps):
+            line = pd.DataFrame(pd.Series(step.as_dict())).T
+            line.insert(0, "Step", [i + 1])
+            out += [line]
+        return pd.concat(out, ignore_index=True)
