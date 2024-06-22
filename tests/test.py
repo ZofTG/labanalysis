@@ -1,6 +1,5 @@
 """test the rslib library"""
 
-
 #! IMPORTS
 
 
@@ -18,7 +17,7 @@ def test_all():
     """test all rslib functionalities"""
     test_utils()
     test_regression()
-    test_io()
+    test_plotting()
     test_signalprocessing()
 
 

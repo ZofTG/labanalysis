@@ -22,11 +22,14 @@ signalprocessing
 
 utils
     module containing several utilities that can be used for multiple purposes
+
+plotting
+    a set of functions for standard plots creation.
 """
 
 from .equations import *
-from .gaitanalysis import *
 from .regression import *
 from .signalprocessing import *
 from .testing import *
 from .utils import *
+from .plotting import *
