@@ -936,7 +936,7 @@ class GaitTest:
     def _find_steps_from_grf(self):
         """find steps via grf coordinates"""
         if self.grf is not None and self.cop is not None:
-            #TODO
+            # TODO
             pass
 
     def _find_steps_from_markers(self):
@@ -995,40 +995,40 @@ class GaitTest:
 
     def _extract_steps(
         self,
-        evts:dict[str, np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]]],
+        evts: dict[str, np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]]],
     ):
         """extract steps from events map"""
         evts_val = np.concatenate(list(evts.values()))
         evts_lbl = [np.tile(i, len(v)) for i, v in evts.items()]
         evts_lbl = np.concatenate(evts_lbl)
         evts_idx = np.argsort(evts_val)
-            evts_val = evts_val[evts_idx]
-            evts_side = np.array([i.split(" ")[1] for i in evts_lbl[evts_idx]])
-            evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
+        evts_val = evts_val[evts_idx]
+        evts_side = np.array([i.split(" ")[1] for i in evts_lbl[evts_idx]])
+        evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
 
-            # get the steps
-            run_seq = ["FS", "MS", "TO", "LD"]
-            walk_seq = ["FS", "TO", "MS", "LD"]
-            for n in np.arange(0, len(evts_lbl) - 4, 3):
-                idx = np.arange(4) + n
-                seq = evts_lbl[idx].copy()
-                seq[-1] = "LD"
-                sides = evts_side[idx].copy()
-                vals = evts_val[idx].copy()
-                s0 = sides[0]
-                if (
-                    all([i == v for i, v in zip(seq, run_seq)])
-                    & all(i == s0 for i in sides[:-1])
-                    & (sides[-1] != s0)
-                ):  # running
-                    self._steps += [RunningStep(*vals, side=s0.upper())]
-                elif (
-                    all([i == v for i, v in zip(seq, walk_seq)])
-                    & all(i == s0 for i in sides[2:-1])
-                    & (sides[1] != s0)
-                    & (sides[-1] != s0)
-                ):  # walking
-                    self._steps += [WalkingStep(*vals, side=s0.upper())]
+        # get the steps
+        run_seq = ["FS", "MS", "TO", "LD"]
+        walk_seq = ["FS", "TO", "MS", "LD"]
+        for n in np.arange(0, len(evts_lbl) - 4, 3):
+            idx = np.arange(4) + n
+            seq = evts_lbl[idx].copy()
+            seq[-1] = "LD"
+            sides = evts_side[idx].copy()
+            vals = evts_val[idx].copy()
+            s0 = sides[0]
+            if (
+                all([i == v for i, v in zip(seq, run_seq)])
+                & all(i == s0 for i in sides[:-1])
+                & (sides[-1] != s0)
+            ):  # running
+                self._steps += [RunningStep(*vals, side=s0.upper())]
+            elif (
+                all([i == v for i, v in zip(seq, walk_seq)])
+                & all(i == s0 for i in sides[2:-1])
+                & (sides[1] != s0)
+                & (sides[-1] != s0)
+            ):  # walking
+                self._steps += [WalkingStep(*vals, side=s0.upper())]
 
     @classmethod
     def from_file(
