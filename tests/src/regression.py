@@ -19,7 +19,7 @@ __all__ = ["test_regression"]
 
 
 def _add_noise(
-    arr: np.ndarray[Any, np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Any, np.dtype[np.float64 | np.int_]],
     noise: float,
 ):
     """
@@ -27,7 +27,7 @@ def _add_noise(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_ | np.int_]]
+    arr: np.ndarray[Any, np.dtype[np.float64 | np.int_]]
         the input array
 
     noise: float
@@ -35,7 +35,7 @@ def _add_noise(
 
     Return
     ------
-    out: np.ndarray[Any, np.dtype[np.float_ | np.int_]]
+    out: np.ndarray[Any, np.dtype[np.float64 | np.int_]]
         the array with added input.
     """
     return arr + np.random.randn(*arr.shape) * np.std(arr) * noise

@@ -995,7 +995,7 @@ class GaitTest:
 
     def _extract_steps(
         self,
-        evts: dict[str, np.ndarray[Literal[1], np.dtype[np.float_ | np.int64]]],
+        evts: dict[str, np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]]],
     ):
         """extract steps from events map"""
         evts_val = np.concatenate(list(evts.values()))

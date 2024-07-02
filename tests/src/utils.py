@@ -21,7 +21,7 @@ __all__ = ["test_utils"]
 def test_utils():
     """test the regression module"""
     raw = np.arange(51)
-    splitted = split_data(raw, {"A": 0.5, "B": 0.25, "C": 0.25}, 5)
+    splitted = split_data(raw, {"A": 0.5, "B": 0.25, "C": 0.25}, 5)  # type: ignore
     print(f"RAW: {raw}")
     print(f"SPLITTED: {splitted}")
 

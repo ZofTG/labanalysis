@@ -88,9 +88,9 @@ class Isokinetic1RM:
 
     def _find_repetitions(
         self,
-        time: np.ndarray[Literal[1], np.dtype[np.float_]],
-        force: np.ndarray[Literal[1], np.dtype[np.float_]],
-        position: np.ndarray[Literal[1], np.dtype[np.float_]],
+        time: np.ndarray[Literal[1], np.dtype[np.float64]],
+        force: np.ndarray[Literal[1], np.dtype[np.float64]],
+        position: np.ndarray[Literal[1], np.dtype[np.float64]],
     ):
         """
         private method used to extract the samples defining the start
@@ -98,18 +98,18 @@ class Isokinetic1RM:
 
         Parameters
         ----------
-        time : np.ndarray[Any, np.dtype[np.float_]]
+        time : np.ndarray[Any, np.dtype[np.float64]]
             the force readings resulting from processed biodrive data
 
-        force : np.ndarray[Any, np.dtype[np.float_]]
+        force : np.ndarray[Any, np.dtype[np.float64]]
             the force readings resulting from processed biodrive data
 
-        position : np.ndarray[Any, np.dtype[np.float_]]
+        position : np.ndarray[Any, np.dtype[np.float64]]
             the position readings resulting from processed biodrive data
 
         Results
         -------
-        reps: np.ndarray[Any, np.dtype[np.float_]]
+        reps: np.ndarray[Any, np.dtype[np.float64]]
             a Nx2 array where each row denotes a repetition and the columns
             respectively the starting and stopping samples of the rep.
         """
