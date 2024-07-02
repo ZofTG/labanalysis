@@ -24,7 +24,7 @@ __all__ = ["plot_comparisons_plotly"]
 
 # types
 
-NumericArray1D = np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]]
+NumericArray1D = np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]]
 
 # function
 
@@ -42,10 +42,10 @@ def plot_comparisons_plotly(
 
     Parameters
     ----------
-    xarr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    xarr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
         the array defining the x-axis in the regression plot.
 
-    yarr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    yarr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
         the array defining the y-axis in the regression plot.
 
     xlabel: str

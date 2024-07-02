@@ -77,7 +77,6 @@ padwin
     indices defining each window on the signal.
 """
 
-
 #! IMPORTS
 
 from types import FunctionType, MethodType
@@ -121,7 +120,7 @@ __all__ = [
 
 
 def find_peaks(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     height: int | float | None = None,
     distance: int | None = None,
 ):
@@ -130,7 +129,7 @@ def find_peaks(
 
     Parameters
     ----------
-    arr : np.ndarray[Any, np.dtype[np.float_]]
+    arr : np.ndarray[Any, np.dtype[np.float64]]
         the input signal
 
     height : Union[int, float, None]
@@ -141,7 +140,7 @@ def find_peaks(
 
     Returns
     -------
-    p: np.ndarray[Any, np.dtype[np.int_]]
+    p: np.ndarray[Any, np.dtype[np.int64]]
         the array containing the samples corresponding to the detected peaks
     """
     # get all peaks
@@ -220,8 +219,8 @@ def nextpow(
 
 
 def winter_derivative1(
-    y_signal: np.ndarray[Any, np.dtype[np.float_]],
-    x_signal: None | np.ndarray[Any, np.dtype[np.float_]] = None,
+    y_signal: np.ndarray[Any, np.dtype[np.float64]],
+    x_signal: None | np.ndarray[Any, np.dtype[np.float64]] = None,
     time_diff: float | int = 1,
 ):
     """
@@ -230,10 +229,10 @@ def winter_derivative1(
     Parameters
     ----------
 
-    y_signal: np.ndarray[Any, np.dtype[np.float_]]
+    y_signal: np.ndarray[Any, np.dtype[np.float64]]
         the signal to be derivated
 
-    x_signal: None | np.ndarray[Any, np.dtype[np.float_]]
+    x_signal: None | np.ndarray[Any, np.dtype[np.float64]]
         the optional signal from which y has to  be derivated (default = None)
 
     time_diff: float | int
@@ -264,8 +263,8 @@ def winter_derivative1(
 
 
 def winter_derivative2(
-    y_signal: np.ndarray[Any, np.dtype[np.float_]],
-    x_signal: None | np.ndarray[Any, np.dtype[np.float_]] = None,
+    y_signal: np.ndarray[Any, np.dtype[np.float64]],
+    x_signal: None | np.ndarray[Any, np.dtype[np.float64]] = None,
     time_diff: float | int = 1,
 ):
     """
@@ -274,10 +273,10 @@ def winter_derivative2(
     Parameters
     ----------
 
-    y_signal: np.ndarray[Any, np.dtype[np.float_]]
+    y_signal: np.ndarray[Any, np.dtype[np.float64]]
         the signal to be derivated
 
-    x_signal: None | np.ndarray[Any, np.dtype[np.float_]]
+    x_signal: None | np.ndarray[Any, np.dtype[np.float64]]
         the optional signal from which y has to  be derivated (default = None)
 
     time_diff: float | int
@@ -287,7 +286,7 @@ def winter_derivative2(
     Returns
     -------
 
-    z: np.ndarray[Any, np.dtype[np.float_]]
+    z: np.ndarray[Any, np.dtype[np.float64]]
         an array being the second derivative of y
 
     References
@@ -310,7 +309,7 @@ def winter_derivative2(
 
 
 def freedman_diaconis_bins(
-    y_signal: np.ndarray[Any, np.dtype[np.float_]],
+    y_signal: np.ndarray[Any, np.dtype[np.float64]],
 ):
     """
     return a digitized version of y where each value is linked to a
@@ -323,13 +322,13 @@ def freedman_diaconis_bins(
     Parameters
     ----------
 
-    y_signal: np.ndarray[Any, np.dtype[np.float_]]
+    y_signal: np.ndarray[Any, np.dtype[np.float64]]
         the signal to be digitized.
 
     Returns
     -------
 
-    d: np.ndarray[Any, np.dtype[np.float_]]
+    d: np.ndarray[Any, np.dtype[np.float64]]
         an array with the same shape of y containing the index
         of the bin of which the corresponding sample of y is part.
 
@@ -361,7 +360,7 @@ def freedman_diaconis_bins(
 
 
 def padwin(
-    arr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -372,7 +371,7 @@ def padwin(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     order: int = 1,
@@ -436,10 +435,10 @@ def padwin(
 
     Returns
     -------
-    pad: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    pad: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
         The padded signal
 
-    mask: np.ndarray[Literal[2], np.dtype[np.int_]],
+    mask: np.ndarray[Literal[2], np.dtype[np.int64]],
         a 2D mask where each row denotes the indices of one window.
     """
     # get the window range
@@ -460,7 +459,7 @@ def padwin(
 
 
 def mean_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -470,7 +469,7 @@ def mean_filt(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     order: int = 1,
@@ -556,7 +555,7 @@ def mean_filt(
 
 
 def median_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -566,7 +565,7 @@ def median_filt(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     order: int = 1,
@@ -638,7 +637,7 @@ def median_filt(
 
 
 def rms_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -648,7 +647,7 @@ def rms_filt(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     order: int = 1,
@@ -737,7 +736,7 @@ def rms_filt(
 
 
 def fir_filt(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     fcut: float | int | list[float | int] | tuple[float | int] = 1,
     fsamp: float | int = 2,
     order: int = 5,
@@ -779,7 +778,7 @@ def fir_filt(
     Parameters
     ----------
 
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     fcut: float | int | list[float | int], tuple[float | int] = 1,
@@ -883,7 +882,7 @@ def fir_filt(
 
 
 def butterworth_filt(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     fcut: float | int | list[float | int] | tuple[float | int] = 1,
     fsamp: float | int = 2,
     order: int = 5,
@@ -897,7 +896,7 @@ def butterworth_filt(
     Parameters
     ----------
 
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be filtered.
 
     fcut: float | int | list[float | int], tuple[float | int] = 1,
@@ -920,7 +919,7 @@ def butterworth_filt(
     Returns
     -------
 
-    z: np.ndarray[Any, np.dtype[np.float_]],
+    z: np.ndarray[Any, np.dtype[np.float64]],
         the resulting 1D filtered signal.
     """
 
@@ -941,10 +940,10 @@ def butterworth_filt(
 
 
 def cubicspline_interp(
-    y_old: np.ndarray[Any, np.dtype[np.float_]],
+    y_old: np.ndarray[Any, np.dtype[np.float64]],
     nsamp: int | None = None,
-    x_old: np.ndarray[Any, np.dtype[np.float_]] | None = None,
-    x_new: np.ndarray[Any, np.dtype[np.float_]] | None = None,
+    x_old: np.ndarray[Any, np.dtype[np.float64]] | None = None,
+    x_new: np.ndarray[Any, np.dtype[np.float64]] | None = None,
 ):
     """
     Get the cubic spline interpolation of y.
@@ -952,22 +951,22 @@ def cubicspline_interp(
     Parameters
     ----------
 
-    y_old: np.ndarray[Any, np.dtype[np.float_]],
+    y_old: np.ndarray[Any, np.dtype[np.float64]],
         the data to be interpolated.
 
     nsamp: int | None = None,
         the number of points for the interpolation.
 
-    x_old: np.ndarray[Any, np.dtype[np.float_]] | None = None,
+    x_old: np.ndarray[Any, np.dtype[np.float64]] | None = None,
         the x coordinates corresponding to y. It is ignored if n is provided.
 
-    x_new: np.ndarray[Any, np.dtype[np.float_]] | None = None,
+    x_new: np.ndarray[Any, np.dtype[np.float64]] | None = None,
         the newly (interpolated) x coordinates corresponding to y.
         It is ignored if n is provided.
 
     Returns
     -------
-    z: np.ndarray[Any, np.dtype[np.float_]]
+    z: np.ndarray[Any, np.dtype[np.float64]]
         the interpolated y axis
     """
 
@@ -985,7 +984,7 @@ def cubicspline_interp(
 
 
 def residual_analysis(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     ffun: FunctionType | MethodType,
     fnum: int = 1000,
     fmax: float | int | None = None,
@@ -997,7 +996,7 @@ def residual_analysis(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the signal to be investigated
 
     ffun: FunctionType | MethodType,
@@ -1029,10 +1028,10 @@ def residual_analysis(
     cutoff: float
         the suggested cutoff value
 
-    frequencies: np.ndarray[Any, np.dtype[np.float_]],
+    frequencies: np.ndarray[Any, np.dtype[np.float64]],
         the tested frequencies
 
-    residuals: np.ndarray[Any, np.dtype[np.float_]],
+    residuals: np.ndarray[Any, np.dtype[np.float64]],
         the residuals corresponding to the given frequency
 
     Notes
@@ -1073,8 +1072,8 @@ def residual_analysis(
 
 
 def _sse(
-    xval: np.ndarray[Any, np.dtype[np.float_ | np.int_]],
-    yval: np.ndarray[Any, np.dtype[np.float_ | np.int_]],
+    xval: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
+    yval: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
     segm: list[tuple[int]],
 ):
     """
@@ -1083,10 +1082,10 @@ def _sse(
     Parameters
     ----------
 
-    xval: np.ndarray[Any, np.dtype[np.float_]],
+    xval: np.ndarray[Any, np.dtype[np.float64]],
         the x axis signal
 
-    yval: np.ndarray[Any, np.dtype[np.float_]],
+    yval: np.ndarray[Any, np.dtype[np.float64]],
         the y axis signal
 
     segm: list[tuple[int]],
@@ -1110,7 +1109,7 @@ def _sse(
 
 
 def crossovers(
-    arr: np.ndarray[Any, np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
     segments: int = 2,
     min_samples: int = 5,
 ):
@@ -1120,7 +1119,7 @@ def crossovers(
 
     Parameters
     ----------
-    arr:np.ndarray[Any, np.dtype[np.float_]],
+    arr:np.ndarray[Any, np.dtype[np.float64]],
         the signal to be fitted.
 
     segments:int=2,
@@ -1207,7 +1206,7 @@ def crossovers(
 
 
 def psd(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     fsamp: float | int = 1.0,
 ):
     """
@@ -1215,7 +1214,7 @@ def psd(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         A 1D numpy array
 
     fssamp: float | int = 1.0,
@@ -1225,10 +1224,10 @@ def psd(
 
     Returns
     -------
-    frq: np.ndarray[Any, np.dtype[np.float_]],
+    frq: np.ndarray[Any, np.dtype[np.float64]],
         the frequency corresponding to each element of pwr.
 
-    pwr: np.ndarray[Any, np.dtype[np.float_]],
+    pwr: np.ndarray[Any, np.dtype[np.float64]],
         the power of each frequency
     """
 
@@ -1243,7 +1242,7 @@ def psd(
 
 
 def crossings(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
     value: int | float = 0.0,
 ):
     """
@@ -1251,7 +1250,7 @@ def crossings(
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
         the 1D signal from which the crossings have to be found.
 
     value: int | float = 0.0,
@@ -1280,8 +1279,8 @@ def crossings(
 
 
 def xcorr(
-    sig1: np.ndarray[Any, np.dtype[np.float_]],
-    sig2: np.ndarray[Any, np.dtype[np.float_]] | None = None,
+    sig1: np.ndarray[Any, np.dtype[np.float64]],
+    sig2: np.ndarray[Any, np.dtype[np.float64]] | None = None,
     biased: bool = False,
     full: bool = False,
 ):
@@ -1290,10 +1289,10 @@ def xcorr(
 
     Parameters
     ----------
-    sig1: np.ndarray[Any, np.dtype[np.float_]],
+    sig1: np.ndarray[Any, np.dtype[np.float64]],
         the signal from which the auto or cross-correlation is provided.
 
-    sig2: np.ndarray[Any, np.dtype[np.float_]] | None = None,
+    sig2: np.ndarray[Any, np.dtype[np.float64]] | None = None,
         the signal from which the auto or cross-correlation is provided.
         if None. The autocorrelation of x is provided. Otherwise the x-y
         cross-correlation is returned.
@@ -1307,10 +1306,10 @@ def xcorr(
 
     Returns
     -------
-    xcr: np.ndarray[Any, np.dtype[np.float_]]
+    xcr: np.ndarray[Any, np.dtype[np.float64]]
         the auto/cross-correlation value.
 
-    lag: np.ndarray[Any, np.dtype[np.float_]]
+    lag: np.ndarray[Any, np.dtype[np.float64]]
         the lags in sample units.
     """
 
@@ -1357,19 +1356,19 @@ def xcorr(
 
 
 def outlyingness(
-    arr: np.ndarray[Any, np.dtype[np.float_]],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
 ):
     """
     return the adsjusted outlyingness factor.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float_]]
+    arr: np.ndarray[Any, np.dtype[np.float64]]
         the input array
 
     Returns
     -------
-    out: np.ndarray[Any, np.dtype[np.float_]]
+    out: np.ndarray[Any, np.dtype[np.float64]]
         the outlyingness score of each element
 
     References
@@ -1403,7 +1402,7 @@ def outlyingness(
 
 
 def gram_schmidt(
-    points: np.ndarray[Any, np.dtype[np.float_]],
+    points: np.ndarray[Any, np.dtype[np.float64]],
 ):
     """
     Return the orthogonal basis defined by a set of points using the
@@ -1411,12 +1410,12 @@ def gram_schmidt(
 
     Parameters
     ----------
-    points: np.ndarray[Any, np.dtype[np.float_]]
+    points: np.ndarray[Any, np.dtype[np.float64]]
         a NxN numpy.ndarray to be orthogonalized (by row).
 
     Returns
     -------
-    ortho: np.ndarray[Any, np.dtype[np.float_]]
+    ortho: np.ndarray[Any, np.dtype[np.float64]]
         a NxN numpy.ndarray containing the orthogonalized arrays.
     """
 
@@ -1442,7 +1441,7 @@ def fillna(
 
     Parameters
     ----------
-    arr : np.ndarray[Any, np.dtype[np.float_]] | pandas.DataFrame
+    arr : np.ndarray[Any, np.dtype[np.float64]] | pandas.DataFrame
         array with nans to be filled
 
     value : float or None
@@ -1467,7 +1466,7 @@ def fillna(
         raise TypeError("'arr' must be a numpy.ndarray or pandas.DataFrame.")
     miss = np.isnan(arr)
     if isinstance(arr, DataFrame):
-        miss = miss.values.astype(bool)
+        miss = miss.values.astype(bool)  # type: ignore
 
     # otherwise return a copy of the actual vector
     if not np.any(miss):
@@ -1518,19 +1517,19 @@ def fillna(
 
 
 def tkeo(
-    arr: np.ndarray[Literal[1], np.dtype[np.float_ | np.int_]],
+    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
 ):
     """
     obtain the discrete Teager-Keiser Energy of the input signal.
 
     Parameters
     ----------
-    arr : np.ndarray[Literal[1], np.dtype[np.float_  |  np.int_]]
+    arr : np.ndarray[Literal[1], np.dtype[np.float64  |  np.int64]]
         a 1D input signal
 
     Returns
     -------
-    tke: np.ndarray[Literal[1], np.dtype[np.float_]]
+    tke: np.ndarray[Literal[1], np.dtype[np.float64]]
         the Teager-Keiser energy
     """
     out = arr[1:-1] ** 2 - arr[2:] * arr[:-2]

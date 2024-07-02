@@ -23,7 +23,6 @@ split_data
     to the given proportions.
 """
 
-
 #! IMPORTS
 
 
@@ -454,7 +453,7 @@ def get_files(
 
 
 def split_data(
-    data: np.ndarray[Any, np.dtype[np.float_]],
+    data: np.ndarray[Any, np.dtype[np.float64]],
     proportion: dict[str, float],
     groups: int,
 ):
@@ -471,7 +470,7 @@ def split_data(
 
     Parameters
     ----------
-    data : np.ndarray[Any, np.dtype[np.float_]]
+    data : np.ndarray[Any, np.dtype[np.float64]]
         a 1D input array
 
     proportion : dict[str, float]
@@ -484,7 +483,7 @@ def split_data(
 
     Returns
     -------
-    splits: dict[str, np.ndarray[Any, np.dtype[np.int_]]]
+    splits: dict[str, np.ndarray[Any, np.dtype[np.int64]]]
         a dict with the same keys of proportion, which contains the
         corresponding indices.
     """
