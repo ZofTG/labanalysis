@@ -38,7 +38,7 @@ def plot_comparisons_plotly(
     ylabel: str = "",
     confidence: float = 0.95,
     parametric: bool = False,
-    fig: go.Figure | go.FigureWidget | None = None,
+    figure: go.Figure | go.FigureWidget | None = None,
     row: int = 1,
 ):
     """
@@ -68,7 +68,7 @@ def plot_comparisons_plotly(
         if True, parametric Bland-Altmann confidence intervals are reported.
         Otherwise, non parametric confidence intervals are provided.
 
-    fig: go.Figure | go.FigureWidget | None (default = None)
+    figure: go.Figure | go.FigureWidget | None (default = None)
         an already existing figure where to add the plot along the passed row
 
     row: int (default = 1)
@@ -76,7 +76,7 @@ def plot_comparisons_plotly(
     """
 
     # generate the figure
-    if fig is None:
+    if figure is None:
         fig = make_subplots(
             rows=max(1, row),
             cols=2,
@@ -97,6 +97,8 @@ def plot_comparisons_plotly(
                 x=1,
             ),
         )
+    else:
+        fig = figure
 
     fig.update_xaxes(title=xlabel, col=1, row=row)
     fig.update_yaxes(title=ylabel, col=1, row=row)
@@ -324,4 +326,5 @@ def plot_comparisons_plotly(
         name=loa_lbl,
     )
 
-    return go.FigureWidget(data=fig.data, layout=fig.layout)
+    if figure is None:
+        return go.FigureWidget(data=fig.data, layout=fig.layout)
