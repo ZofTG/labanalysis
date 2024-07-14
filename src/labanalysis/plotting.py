@@ -10,32 +10,36 @@ plot_comparisons_plotly
     Plotly FigureWidget object.
 """
 
-# imports
+#! IMPORTS
 
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express.colors as pcolors
 from plotly.subplots import make_subplots
 from scipy.stats import norm, ttest_ind, ttest_rel
 
-
 __all__ = ["plot_comparisons_plotly"]
 
-# types
+#! TYPES
 
 NumericArray1D = np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]]
+ObjectArray1D = np.ndarray[Literal[1], Any]
 
-# function
+#! FUNCTION
 
 
 def plot_comparisons_plotly(
     xarr: NumericArray1D,
     yarr: NumericArray1D,
+    color: ObjectArray1D | None = None,
     xlabel: str = "",
     ylabel: str = "",
     confidence: float = 0.95,
     parametric: bool = False,
+    fig: go.Figure | go.FigureWidget | None = None,
+    row: int = 1,
 ):
     """
     A combination of regression and bland-altmann plots
@@ -48,10 +52,13 @@ def plot_comparisons_plotly(
     yarr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
         the array defining the y-axis in the regression plot.
 
-    xlabel: str
+    color: np.ndarray[Literal[1], np.dtype[Any]] | None (default = None)
+        the array defining the color of each sample in the regression plot.
+
+    xlabel: str (default = "")
         the label of the x-axis in the regression plot.
 
-    ylabel: str
+    ylabel: str (default = "")
         the label of the y-axis in the regression plot.
 
     confidence: float (default = 0.95)
@@ -60,74 +67,84 @@ def plot_comparisons_plotly(
     parametric: bool (default = False)
         if True, parametric Bland-Altmann confidence intervals are reported.
         Otherwise, non parametric confidence intervals are provided.
+
+    fig: go.Figure | go.FigureWidget | None (default = None)
+        an already existing figure where to add the plot along the passed row
+
+    row: int (default = 1)
+        the index of the row where to put the plots
     """
 
     # generate the figure
+    if fig is None:
+        fig = make_subplots(
+            rows=max(1, row),
+            cols=2,
+            shared_xaxes=False,
+            shared_yaxes=False,
+            column_titles=[
+                "FITTING MEASURES",
+                " ".join(["" if parametric else "NON PARAMETRIC", "BLAND-ALTMAN"]),
+            ],
+        )
+        fig.update_layout(
+            template="plotly",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.1,
+                xanchor="right",
+                x=1,
+            ),
+        )
 
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        shared_xaxes=False,
-        shared_yaxes=False,
-        column_titles=[
-            "FITTING MEASURES",
-            " ".join(["" if parametric else "NON PARAMETRIC", "BLAND-ALTMAN"]),
-        ],
-    )
+    fig.update_xaxes(title=xlabel, col=1, row=row)
+    fig.update_yaxes(title=ylabel, col=1, row=row)
+    fig.update_xaxes(title="MEAN", col=2, row=row)
+    fig.update_yaxes(title="DELTA", col=2, row=row)
 
-    # update the layout
-
-    fig.update_layout(
-        template="plotly",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.1,
-            xanchor="right",
-            x=1,
-        ),
-    )
-
-    fig.update_xaxes(title=xlabel, col=1)
-    fig.update_yaxes(title=ylabel, col=1)
-    fig.update_xaxes(title="MEAN", col=2)
-    fig.update_yaxes(title="DELTA", col=2)
+    # set the colormap
+    if color is None:
+        color = np.tile("none", len(xarr))
+    pmap = pcolors.qualitative.Plotly
+    colmap = np.unique(color.astype(str), return_index=True)
+    colmap = [(i, j, k) for i, j, k in zip(*colmap, pmap)]
 
     # add the identity line to the regression plot
     ymin = min(np.min(yarr), np.min(xarr))
     ymax = max(np.max(yarr), np.max(xarr))
-
     fig.add_trace(
-        row=1,
+        row=row,
         col=1,
         trace=go.Scatter(
             x=[ymin, ymax],
             y=[ymin, ymax],
             mode="lines",
             line_dash="dash",
-            line_color="red",
+            line_color=pmap[len(colmap)],
             name="IDENTITY LINE",
             legendgroup="IDENTITY LINE",
         ),
     )
 
     # add the scatter points to the regression plot
-
-    fig.add_trace(
-        row=1,
-        col=1,
-        trace=go.Scatter(
-            x=xarr,
-            y=yarr,
-            mode="markers",
-            marker_color="navy",
-            showlegend=False,
-            opacity=0.5,
-        ),
-    )
+    for name, idx, col in colmap:
+        fig.add_trace(
+            row=row,
+            col=1,
+            trace=go.Scatter(
+                x=xarr[idx],
+                y=yarr[idx],
+                mode="markers",
+                marker_color=col,
+                showlegend=color is not None,
+                opacity=0.5,
+                name=name,
+                legendgroup=name,
+            ),
+        )
 
     # add the fitting metrics
-
     rmse = np.mean((yarr - xarr) ** 2) ** 0.5
     mape = np.mean(abs(yarr - xarr) / xarr) * 100
     r2 = np.corrcoef(xarr, yarr)[0][1] ** 2
@@ -147,7 +164,7 @@ def plot_comparisons_plotly(
     txt = "<br>".join(txt)
 
     fig.add_annotation(
-        row=1,
+        row=row,
         col=1,
         x=ymin,
         y=ymax,
@@ -173,38 +190,61 @@ def plot_comparisons_plotly(
         bias = np.mean(diffs)
         scale = np.std(diffs)
         loalow, loasup = norm.interval(confidence, loc=bias, scale=scale)
-
-    fig.add_trace(
-        row=1,
-        col=2,
-        trace=go.Scatter(
-            x=means,
-            y=diffs,
-            mode="markers",
-            marker_color="navy",
-            showlegend=False,
-            opacity=0.5,
-        ),
-    )
+    for name, idx, col in colmap:
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=means[idx],
+                y=diffs[idx],
+                mode="markers",
+                marker_color=col,
+                showlegend=color is not None,
+                opacity=0.5,
+                name=name,
+                legendgroup=name,
+            ),
+        )
 
     # plot the bias
+    x_idx = np.argsort(means)
+    x_bias = means[x_idx]
+    f_bias = np.polyfit(means, diffs, 1)
+    y_bias = np.polyval(f_bias, x_bias)
     fig.add_trace(
-        row=1,
+        row=row,
         col=2,
         trace=go.Scatter(
-            x=xrng,
-            y=[bias, bias],
+            x=x_bias,
+            y=y_bias,
             mode="lines",
-            line_color="green",
+            line_color=pmap[len(colmap) + 1],
             line_dash="dash",
             line_width=4,
             name="BIAS",
             opacity=0.8,
         ),
     )
-
+    chrs = np.max([len(str(i).split(".")[0]) for i in f_bias] + [5])
     fig.add_annotation(
-        row=1,
+        row=row,
+        col=2,
+        x=x_bias[0],
+        y=y_bias[0],
+        text=f"y={str(f_bias[0])[:chrs]}x {str(f_bias[1])[:chrs]}",
+        textangle=np.degrees(np.arctan(f_bias[0])),
+        showarrow=False,
+        xanchor="left",
+        align="left",
+        valign="bottom",
+        font=dict(
+            family="sans serif",
+            size=12,
+            color=pmap[len(colmap) + 1],
+        ),
+    )
+    fig.add_annotation(
+        row=row,
         col=2,
         x=xrng[-1],
         y=bias,
@@ -212,19 +252,23 @@ def plot_comparisons_plotly(
         showarrow=False,
         xanchor="left",
         align="left",
-        font=dict(family="sans serif", size=12, color="green"),
+        font=dict(
+            family="sans serif",
+            size=12,
+            color=pmap[len(colmap) + 1],
+        ),
     )
 
     # plot the limits of agreement
     fig.add_trace(
-        row=1,
+        row=row,
         col=2,
         trace=go.Scatter(
             x=[xrng[0], xrng[1], xrng[1], xrng[0], xrng[0]],
             y=[loalow, loalow, loasup, loasup, loalow],
             mode="lines",
             fill="toself",
-            line_color="black",
+            line_color=pmap[len(colmap) + 2],
             line_width=0,
             name=loa_lbl,
             legendgroup=loa_lbl,
@@ -233,7 +277,7 @@ def plot_comparisons_plotly(
     )
 
     fig.add_annotation(
-        row=1,
+        row=row,
         col=2,
         x=xrng[-1],
         y=loalow,
@@ -241,12 +285,16 @@ def plot_comparisons_plotly(
         showarrow=False,
         xanchor="left",
         align="left",
-        font=dict(family="sans serif", size=12, color="black"),
+        font=dict(
+            family="sans serif",
+            size=12,
+            color=pmap[len(colmap) + 2],
+        ),
         name=loa_lbl,
     )
 
     fig.add_annotation(
-        row=1,
+        row=row,
         col=2,
         x=xrng[-1],
         y=loasup,
@@ -254,7 +302,11 @@ def plot_comparisons_plotly(
         showarrow=False,
         xanchor="left",
         align="left",
-        font=dict(family="sans serif", size=12, color="black"),
+        font=dict(
+            family="sans serif",
+            size=12,
+            color=pmap[len(colmap) + 2],
+        ),
         name=loa_lbl,
     )
 

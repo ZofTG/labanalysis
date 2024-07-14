@@ -5,7 +5,6 @@
 
 import sys
 from os.path import dirname, join
-from typing import Any
 import numpy as np
 
 sys.path += [join(dirname(dirname(dirname(__file__))), "src")]
@@ -22,7 +21,8 @@ def test_plotting():
     """test the plotting module"""
     xarr = np.random.random(100)
     yarr = np.random.random(100)
-    plot_comparisons_plotly(xarr, yarr, "XLAB", "YLAB", parametric=True).show()
+    clrs = np.array(["M" if i % 2 == 0 else "F" for i in np.arange(len(xarr))])
+    plot_comparisons_plotly(xarr, yarr, clrs, "XLAB", "YLAB", parametric=True).show()
 
 
 if __name__ == "__main__":
