@@ -1,4 +1,4 @@
-"""test the rslib library"""
+"""test the labanalysis library"""
 
 #! IMPORTS
 
@@ -14,7 +14,7 @@ from tests import *
 
 
 def test_all():
-    """test all rslib functionalities"""
+    """test all functionalities"""
     test_plotting()
     test_utils()
     test_regression()

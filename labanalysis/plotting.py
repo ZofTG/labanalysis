@@ -231,7 +231,7 @@ def plot_comparisons_plotly(
         x=x_bias[0],
         y=y_bias[0],
         text=f"y={str(f_bias[0])[:chrs]}x {str(f_bias[1])[:chrs]}",
-        textangle=f_bias[0],
+        textangle=np.sign(f_bias[0]) * np.degrees(np.arctan(f_bias[0])),
         showarrow=False,
         xanchor="left",
         align="left",
