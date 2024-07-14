@@ -113,7 +113,7 @@ def plot_comparisons_plotly(
     if color is None:
         color = np.tile("none", len(xarr))
     pmap = pcolors.qualitative.Plotly
-    colmap = np.unique(color.astype(str))
+    colmap = np.unique(np.array(color).flatten().astype(str))
     colmap = [(i, color == i, k) for i, k in zip(colmap, pmap)]
 
     # add the scatter points to the regression plot
@@ -226,23 +226,26 @@ def plot_comparisons_plotly(
             y=y_bias,
             mode="lines",
             line_color="black",
-            line_dash="dash",
+            line_dash="dot",
             name="BIAS",
             opacity=0.8,
             showlegend=showlegend,
         ),
     )
-    chrs = np.max([len(str(i).split(".")[0]) for i in f_bias] + [5])
+    chrs = np.max([len(str(i).split(".")[0]) + 2 for i in f_bias] + [6])
+    msg = [f"{i:+}" for i in f_bias]
+    msg = f"y = {msg[0][:chrs]}x {msg[1][:chrs]}"
     fig.add_annotation(
         row=row,
         col=2,
-        x=x_bias[0],
-        y=y_bias[0],
-        text=f"y={str(f_bias[0])[:chrs]}x {str(f_bias[1])[:chrs]}",
-        textangle=np.sign(f_bias[0]) * np.degrees(np.arctan(f_bias[0])),
+        x=x_bias[-1],
+        y=y_bias[-1],
+        text=msg,
         showarrow=False,
-        xanchor="left",
-        align="left",
+        xanchor="right",
+        yanchor="bottom",
+        standoff=5,
+        align="right",
         valign="bottom",
         font=dict(
             family="sans serif",

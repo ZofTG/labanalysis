@@ -18,7 +18,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-version = "21"
+version = "22"
 dynamic = ["readme", "dependencies"]
 
 [tool.setuptools.dynamic]

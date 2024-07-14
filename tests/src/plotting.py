@@ -21,6 +21,11 @@ def test_plotting():
     """test the plotting module"""
     xarr = np.random.random(100)
     yarr = np.random.random(100)
+    yarr = (yarr - np.mean(yarr)) / np.std(yarr)
+    beta0 = 0
+    beta1 = -0.5
+    std = 0.3
+    yarr = (xarr * beta1 + beta0) + yarr * std
     clrs = np.array(["M" if i % 2 == 0 else "F" for i in np.arange(len(xarr))])
     fig = plot_comparisons_plotly(xarr, yarr, clrs, "XLAB", "YLAB", parametric=True)
     fig.show()
