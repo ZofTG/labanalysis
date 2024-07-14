@@ -218,9 +218,8 @@ def plot_comparisons_plotly(
             x=x_bias,
             y=y_bias,
             mode="lines",
-            line_color=pmap[len(colmap) + 1],
+            line_color="black",
             line_dash="dash",
-            line_width=4,
             name="BIAS",
             opacity=0.8,
         ),
@@ -232,7 +231,7 @@ def plot_comparisons_plotly(
         x=x_bias[0],
         y=y_bias[0],
         text=f"y={str(f_bias[0])[:chrs]}x {str(f_bias[1])[:chrs]}",
-        textangle=np.arctan(f_bias[0]),
+        textangle=f_bias[0],
         showarrow=False,
         xanchor="left",
         align="left",
@@ -240,7 +239,7 @@ def plot_comparisons_plotly(
         font=dict(
             family="sans serif",
             size=12,
-            color=pmap[len(colmap) + 1],
+            color="black",
         ),
     )
     fig.add_annotation(
@@ -255,7 +254,7 @@ def plot_comparisons_plotly(
         font=dict(
             family="sans serif",
             size=12,
-            color=pmap[len(colmap) + 1],
+            color="black",
         ),
     )
 
@@ -267,7 +266,7 @@ def plot_comparisons_plotly(
             x=[xrng[0], xrng[1]],
             y=[loalow, loalow],
             mode="lines",
-            line_color=pmap[len(colmap) + 2],
+            line_color="black",
             line_dash="dashdot",
             name=loa_lbl,
             legendgroup=loa_lbl,
@@ -282,7 +281,7 @@ def plot_comparisons_plotly(
             x=[xrng[0], xrng[1]],
             y=[loasup, loasup],
             mode="lines",
-            line_color=pmap[len(colmap) + 2],
+            line_color="black",
             line_dash="dashdot",
             name=loa_lbl,
             legendgroup=loa_lbl,
@@ -303,7 +302,7 @@ def plot_comparisons_plotly(
         font=dict(
             family="sans serif",
             size=12,
-            color=pmap[len(colmap) + 2],
+            color="black",
         ),
         name=loa_lbl,
     )
@@ -320,7 +319,7 @@ def plot_comparisons_plotly(
         font=dict(
             family="sans serif",
             size=12,
-            color=pmap[len(colmap) + 2],
+            color="black",
         ),
         name=loa_lbl,
     )
