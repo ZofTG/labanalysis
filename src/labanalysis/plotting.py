@@ -110,23 +110,6 @@ def plot_comparisons_plotly(
     colmap = np.unique(color.astype(str))
     colmap = [(i, color == i, k) for i, k in zip(colmap, pmap)]
 
-    # add the identity line to the regression plot
-    ymin = min(np.min(yarr), np.min(xarr))
-    ymax = max(np.max(yarr), np.max(xarr))
-    fig.add_trace(
-        row=row,
-        col=1,
-        trace=go.Scatter(
-            x=[ymin, ymax],
-            y=[ymin, ymax],
-            mode="lines",
-            line_dash="dash",
-            line_color=pmap[len(colmap)],
-            name="IDENTITY LINE",
-            legendgroup="IDENTITY LINE",
-        ),
-    )
-
     # add the scatter points to the regression plot
     for name, idx, col in colmap:
         fig.add_trace(
@@ -143,6 +126,23 @@ def plot_comparisons_plotly(
                 legendgroup=name,
             ),
         )
+
+    # add the identity line to the regression plot
+    ymin = min(np.min(yarr), np.min(xarr))
+    ymax = max(np.max(yarr), np.max(xarr))
+    fig.add_trace(
+        row=row,
+        col=1,
+        trace=go.Scatter(
+            x=[ymin, ymax],
+            y=[ymin, ymax],
+            mode="lines",
+            line_dash="dash",
+            line_color=pmap[len(colmap)],
+            name="IDENTITY LINE",
+            legendgroup="IDENTITY LINE",
+        ),
+    )
 
     # add the fitting metrics
     rmse = np.mean((yarr - xarr) ** 2) ** 0.5
@@ -199,7 +199,7 @@ def plot_comparisons_plotly(
                 y=diffs[idx],
                 mode="markers",
                 marker_color=col,
-                showlegend=color is not None,
+                showlegend=False,
                 opacity=0.5,
                 name=name,
                 legendgroup=name,
@@ -232,7 +232,7 @@ def plot_comparisons_plotly(
         x=x_bias[0],
         y=y_bias[0],
         text=f"y={str(f_bias[0])[:chrs]}x {str(f_bias[1])[:chrs]}",
-        textangle=np.degrees(np.arctan(f_bias[0])),
+        textangle=np.arctan(f_bias[0]),
         showarrow=False,
         xanchor="left",
         align="left",
@@ -264,15 +264,30 @@ def plot_comparisons_plotly(
         row=row,
         col=2,
         trace=go.Scatter(
-            x=[xrng[0], xrng[1], xrng[1], xrng[0], xrng[0]],
-            y=[loalow, loalow, loasup, loasup, loalow],
+            x=[xrng[0], xrng[1]],
+            y=[loalow, loalow],
             mode="lines",
-            fill="toself",
             line_color=pmap[len(colmap) + 2],
-            line_width=0,
+            line_dash="dotted",
             name=loa_lbl,
             legendgroup=loa_lbl,
             opacity=0.3,
+            showlegend=True,
+        ),
+    )
+    fig.add_trace(
+        row=row,
+        col=2,
+        trace=go.Scatter(
+            x=[xrng[0], xrng[1]],
+            y=[loasup, loasup],
+            mode="lines",
+            line_color=pmap[len(colmap) + 2],
+            line_dash="dotted",
+            name=loa_lbl,
+            legendgroup=loa_lbl,
+            opacity=0.3,
+            showlegend=False,
         ),
     )
 
