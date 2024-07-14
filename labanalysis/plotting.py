@@ -40,6 +40,7 @@ def plot_comparisons_plotly(
     parametric: bool = False,
     figure: go.Figure | go.FigureWidget | None = None,
     row: int = 1,
+    showlegend: bool = True,
 ):
     """
     A combination of regression and bland-altmann plots
@@ -73,6 +74,9 @@ def plot_comparisons_plotly(
 
     row: int (default = 1)
         the index of the row where to put the plots
+
+    showlegend: bool (default = True)
+        If True show the legend of the figure.
     """
 
     # generate the figure
@@ -122,7 +126,7 @@ def plot_comparisons_plotly(
                 y=yarr[idx],
                 mode="markers",
                 marker_color=col,
-                showlegend=color is not None,
+                showlegend=color is not None and showlegend,
                 opacity=0.5,
                 name=name,
                 legendgroup=name,
@@ -143,6 +147,7 @@ def plot_comparisons_plotly(
             line_color="black",
             name="IDENTITY LINE",
             legendgroup="IDENTITY LINE",
+            showlegend=showlegend,
         ),
     )
 
@@ -224,6 +229,7 @@ def plot_comparisons_plotly(
             line_dash="dash",
             name="BIAS",
             opacity=0.8,
+            showlegend=showlegend,
         ),
     )
     chrs = np.max([len(str(i).split(".")[0]) for i in f_bias] + [5])
@@ -273,7 +279,7 @@ def plot_comparisons_plotly(
             name=loa_lbl,
             legendgroup=loa_lbl,
             opacity=0.3,
-            showlegend=True,
+            showlegend=showlegend,
         ),
     )
     fig.add_trace(
