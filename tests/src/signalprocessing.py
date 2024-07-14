@@ -3,12 +3,12 @@
 #! IMPORTS
 
 
-from os.path import dirname, join
+from os.path import dirname
 import sys
 
 import numpy as np
 
-sys.path += [join(dirname(dirname(dirname(__file__))), "src")]
+sys.path += [dirname(dirname(dirname(__file__)))]
 
 from labanalysis import *
 
