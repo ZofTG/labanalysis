@@ -138,7 +138,7 @@ def plot_comparisons_plotly(
             y=[ymin, ymax],
             mode="lines",
             line_dash="dash",
-            line_color=pmap[len(colmap)],
+            line_color="black",
             name="IDENTITY LINE",
             legendgroup="IDENTITY LINE",
         ),
