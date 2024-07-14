@@ -107,8 +107,8 @@ def plot_comparisons_plotly(
     if color is None:
         color = np.tile("none", len(xarr))
     pmap = pcolors.qualitative.Plotly
-    colmap = np.unique(color.astype(str), return_index=True)
-    colmap = [(i, j, k) for i, j, k in zip(*colmap, pmap)]
+    colmap = np.unique(color.astype(str))
+    colmap = [(i, color == i, k) for i, k in zip(colmap, pmap)]
 
     # add the identity line to the regression plot
     ymin = min(np.min(yarr), np.min(xarr))

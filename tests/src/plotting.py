@@ -22,7 +22,8 @@ def test_plotting():
     xarr = np.random.random(100)
     yarr = np.random.random(100)
     clrs = np.array(["M" if i % 2 == 0 else "F" for i in np.arange(len(xarr))])
-    plot_comparisons_plotly(xarr, yarr, clrs, "XLAB", "YLAB", parametric=True).show()
+    fig = plot_comparisons_plotly(xarr, yarr, clrs, "XLAB", "YLAB", parametric=True)
+    fig.show()
 
 
 if __name__ == "__main__":
