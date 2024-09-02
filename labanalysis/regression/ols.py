@@ -20,11 +20,6 @@ PowerRegression
             Y = b0 * X1 ** b1 * ... + Xn ** bn + e
 
 
-ExponentialRegression
-    Ordinary Least Squares regression model in the form:
-            Y = b0 + b1 * k**X1 + ... + bn * k**Xn + e
-
-
 EllipseRegression
     Regression tool fitting an ellipse in a 2D space
 
@@ -33,25 +28,23 @@ CircleRegression
     Regression tool fitting a circle in a 2D space
 """
 
-
 #! IMPORTS
 
 from collections import namedtuple
-from typing import NamedTuple
+from itertools import product
+from typing import Callable, NamedTuple
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression as LReg
-from sklearn.base import TransformerMixin
+from sklearn.linear_model import LinearRegression
+from numpy.typing import NDArray
 import numpy as np
 import pandas as pd
 import copy
 
 
 __all__ = [
-    "LinearRegression",
     "PolynomialRegression",
+    "MultiSegmentRegression",
     "PowerRegression",
-    "ExponentialRegression",
-    "LogRegression",
     "EllipseRegression",
     "CircleRegression",
 ]
@@ -60,18 +53,29 @@ __all__ = [
 #! CLASSES
 
 
-class LinearRegression(LReg, TransformerMixin):
+class PolynomialRegression(LinearRegression):
     """
     Ordinary Least Squares regression model in the form:
 
-            Y = b0 + b1 * X1 + ... + bn * Xn + e
+            Y = b0 + b1 * fn(X)**1 + ... + bn * fn(X)**n + e
+
+    where "b0...bn" are the model coefficients and "fn" is a transform function
+    applied elemenwise to each sample of X.
 
     Parameters
     ----------
+    degree: int = 1
+        the polynomial order
+
     fit_intercept : bool, default=True
         Whether to calculate the intercept for this model. If set to False,
         no intercept will be used in calculations
         (i.e. data is expected to be centered).
+
+    transform: Callable, default = lambda x: x
+        a callable function defining the type of transform to be applied
+        elementwise to each input value of X before the extension to the
+        required polynomial degree.
 
     copy_X : bool, default=True
         If True, X will be copied; else, it may be overwritten.
@@ -89,46 +93,30 @@ class LinearRegression(LReg, TransformerMixin):
 
     Attributes
     ----------
-    domain: tuple[float, float]
-        the domain of the model
-
-    codomain: tuple[float, float]
-        the codomain of the model
+    degree: int
+        the polynomial degree
 
     betas: pandas DataFrame
         a dataframe reporting the regression coefficients for each feature
 
-    coef_: array of shape (n_features, ) or (n_targets, n_features)
-        Estimated coefficients for the linear regression problem.
-        If multiple targets are passed during the fit (y 2D), this is a
-        2D array of shape (n_targets, n_features), while if only one target
-        is passed, this is a 1D array of length n_features.
-
-    rank_: int
-        Rank of matrix X. Only available when X is dense.
-
-    singular: _array of shape (min(X, y),)
-        Singular values of X. Only available when X is dense.
-
-    intercept_: float or array of shape (n_targets,)
-        Independent term in the linear model.
-        Set to 0.0 if fit_intercept = False.
-
-    n_features_in_: int
-        Number of features seen during fit.
-
-    feature_names_in_: ndarray of shape (n_features_in_,)
-        Names of features seen during fit.
+    additional attributes are described from the mother scikit-learn
+    LinearRegression class object:
+    https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html
     """
 
     _domain = (-np.inf, np.inf)
     _codomain = (-np.inf, np.inf)
-    _names_out: list[str] = []
-    feature_names_in_: list[str] = []
+    _degree: int
+    _names_out:list[str]
+    _names_in:list[str]
+    _transform:Callable
+    _has_intercept: bool
 
     def __init__(
         self,
+        degree: int = 1,
         fit_intercept: bool = True,
+        transform: Callable = lambda x: x,
         copy_X: bool = True,
         n_jobs: int = 1,
         positive: bool = False,
@@ -139,7 +127,52 @@ class LinearRegression(LReg, TransformerMixin):
             n_jobs=n_jobs,
             positive=positive,
         )
-        self._fit_intercept = fit_intercept
+        self._degree = degree
+        self._transform = transform
+        self._has_intercept = fit_intercept
+
+    @property
+    def transform(self):
+        """return the transform function"""
+        return self._transform
+
+    @property
+    def degree(self):
+        """return the polynomial degree"""
+        return self._degree
+
+    @property
+    def domain(self):
+        """return the domain of this model"""
+        return self._domain
+
+    @property
+    def codomain(self):
+        """return the codomain of this model"""
+        return self._codomain
+
+    @property
+    def betas(self):
+        """return the beta coefficients of the model"""
+        rows = len(self.get_feature_names_in()) + 1
+        names = self.get_feature_names_out()
+        cols = len(names)
+        betas = np.zeros((rows, cols))
+        betas[0, 0] = self.intercept_
+        betas[1:, :] = np.atleast_2d(self.coef_).T
+        return pd.DataFrame(
+            data=betas,
+            index=[f"beta{i}" for i in np.arange(rows)],
+            columns=names,
+        )
+
+    def get_feature_names_in(self):
+        """return the input feature names seen at fit time"""
+        return self._names_in
+
+    def get_feature_names_out(self):
+        """return the output feature names seen at fit time"""
+        return self._names_out
 
     def _simplify(
         self,
@@ -165,7 +198,7 @@ class LinearRegression(LReg, TransformerMixin):
             the data formatted as DataFrame.
         """
 
-        def simplify_array(v: np.ndarray, l: str):
+        def simplify_array(v: NDArray, l: str):
             if v.ndim == 1:
                 d = np.atleast_2d(v).T
             elif v.ndim == 2:
@@ -187,246 +220,9 @@ class LinearRegression(LReg, TransformerMixin):
             return simplify_array(np.array([vec]), label)
         raise NotImplementedError(vec)
 
-    @property
-    def domain(self):
-        """return the domain of this model"""
-        return self._domain
-
-    @property
-    def codomain(self):
-        """return the codomain of this model"""
-        return self._codomain
-
-    @property
-    def betas(self):
-        """return the beta coefficients of the model"""
-        rows = len(self.feature_names_in_) + 1
-        names = self.get_feature_names_out()
-        cols = len(names)
-        betas = np.zeros((rows, cols))
-        betas[0, 0] = self.intercept_
-        betas[1:, :] = np.atleast_2d(self.coef_).T
-        return pd.DataFrame(
-            data=betas,
-            index=[f"beta{i}" for i in np.arange(rows)],
-            columns=names,
-        )
-
-    def get_feature_names_out(
-        self,
-        input_features=None,
-    ):
-        """return the names of the fitted values"""
-        return self._names_out
-
-    def transform(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-    ):
-        """
-        Alias of "predict".
-
-        Parameters
-        ----------
-        X: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        Returns
-        -------
-        z: DataFrame
-            the predicted values.
-        """
-        return self.predict(xarr)
-
-    def fit_transform(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
-        **kwargs,
-    ):
-        """
-        Fit the model and return the predicted outcomes.
-
-        Parameters
-        ----------
-        X: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        y: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
-            Target values. Will be cast to X’s dtype if necessary.
-
-        sample_weight: array-like of shape (n_samples,), default=None
-            Individual weights for each sample.
-
-        Returns
-        -------
-        z: DataFrame
-            the predicted values.
-        """
-        return self.fit(
-            xarr=xarr,
-            yarr=yarr,
-            sample_weight=sample_weight,
-        ).predict(xarr)
-
-    def fit(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
-    ):
-        """
-        Fit the model.
-
-        Parameters
-        ----------
-        X: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        y: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
-            Target values. Will be cast to X’s dtype if necessary.
-
-        sample_weight: array-like of shape (n_samples,), default=None
-            Individual weights for each sample.
-
-        Returns
-        -------
-        self: LinearRegression
-            the fitted estimator
-        """
-        yvec = self._simplify(yarr, "Y")
-        self._names_out = yvec.columns.tolist()
-        return super().fit(
-            X=self._simplify(xarr, "X"),
-            y=yvec.values.astype(float),
-            sample_weight=sample_weight,
-        )
-
-    def predict(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-    ):
-        """
-        Fit the model.
-
-        Parameters
-        ----------
-        xarr: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        Returns
-        -------
-        yarr: ArrayLike
-            the predicted values.
-        """
-        out = super().predict(X=self._simplify(xarr, "X"))
-        if isinstance(out, np.ndarray):
-            if out.ndim == 1:
-                out = np.atleast_2d(out).T
-        return out
-
-    def copy(self):
-        """create a copy of the current object."""
-        return copy.deepcopy(self)
-
-
-class PolynomialRegression(LinearRegression):
-    """
-    Ordinary Least Squares regression model in the form:
-
-            Y = b0 + b1 * X**1 + ... + bn * X**n + e
-
-    Parameters
-    ----------
-    degree: int = 1
-        the polynomial order
-
-    fit_intercept : bool, default=True
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations
-        (i.e. data is expected to be centered).
-
-    copy_X : bool, default=True
-        If True, X will be copied; else, it may be overwritten.
-
-    n_jobs : int, default=None
-        The number of jobs to use for the computation. This will only provide
-        speedup in case of sufficiently large problems, that is if firstly
-        n_targets > 1 and secondly X is sparse or if positive is set to True.
-        None means 1 unless in a joblib.parallel_backend context. -1 means
-        using all processors. See Glossary for more details.
-
-    positive : bool, default=False
-        When set to True, forces the coefficients to be positive.
-        This option is only supported for dense arrays.
-
-    Attributes
-    ----------
-    degree: int
-        the polynomial degree
-
-    betas: pandas DataFrame
-        a dataframe reporting the regression coefficients for each feature
-
-    coef_: array of shape (n_features, ) or (n_targets, n_features)
-        Estimated coefficients for the linear regression problem.
-        If multiple targets are passed during the fit (y 2D), this is a
-        2D array of shape (n_targets, n_features), while if only one target
-        is passed, this is a 1D array of length n_features.
-
-    rank_: int
-        Rank of matrix X. Only available when X is dense.
-
-    singular: _array of shape (min(X, y),)
-        Singular values of X. Only available when X is dense.
-
-    intercept_: float or array of shape (n_targets,)
-        Independent term in the linear model.
-        Set to 0.0 if fit_intercept = False.
-
-    n_features_in_: int
-        Number of features seen during fit.
-
-    feature_names_in_: ndarray of shape (n_features_in_,)
-        Names of features seen during fit.
-    """
-
-    _domain = (-np.inf, np.inf)
-    _codomain = (-np.inf, np.inf)
-    degree: int
-
-    def __init__(
-        self,
-        degree: int = 1,
-        fit_intercept: bool = True,
-        copy_X: bool = True,
-        n_jobs: int = 1,
-        positive: bool = False,
-    ):
-        super().__init__(
-            fit_intercept=fit_intercept,
-            copy_X=copy_X,
-            n_jobs=n_jobs,
-            positive=positive,
-        )
-        self.degree = degree
-
     def _adjust_degree(
         self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
+        xarr: pd.DataFrame,
     ):
         """
         prepare the input to the fit and predict methods
@@ -438,32 +234,24 @@ class PolynomialRegression(LinearRegression):
 
         Returns
         -------
-        yvec: pd.DataFrame | pd.Series
+        xvec: pd.DataFrame | pd.Series
             the transformed features
         """
-        xvec = self._simplify(xarr, "X")
         feats = PolynomialFeatures(
             degree=self.degree,
             interaction_only=False,
-            include_bias=False,
+            include_bias=self._has_intercept,
         )
         return pd.DataFrame(
-            data=feats.fit_transform(xvec),
+            data=feats.fit_transform(xarr),
             columns=feats.get_feature_names_out(),
-            index=xvec.index,
+            index=xarr.index,
         )
 
     def fit(
         self,
         xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
         yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
     ):
         """
         Fit the model.
@@ -476,19 +264,16 @@ class PolynomialRegression(LinearRegression):
         yarr: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
             Target values. Will be cast to X’s dtype if necessary.
 
-        sample_weight: array-like of shape (n_samples,), default=None
-            Individual weights for each sample.
-
         Returns
         -------
         self
             the fitted estimator
         """
-        return super().fit(
-            xarr=self._adjust_degree(xarr),
-            yarr=self._simplify(yarr, "Y").values.astype(float),
-            sample_weight=sample_weight,
-        )
+        Y = self._simplify(yarr, "Y")
+        self._names_out = Y.columns.tolist()
+        X = self._adjust_degree(self._simplify(xarr, "X").map(self.transform))
+        self._names_in = X.columns.tolist()
+        return super().fit(X.values, Y)
 
     def predict(
         self,
@@ -507,28 +292,37 @@ class PolynomialRegression(LinearRegression):
         yarr: DataFrame
             the predicted values.
         """
-        return super().predict(xarr=self._adjust_degree(xarr))
+        X = self._adjust_degree(self._simplify(xarr).map(self.transform))
+        return pd.DataFrame(
+            data=super().predict(X.values),
+            columns=self.get_feature_names_out(),
+            index=X.index,
+        )
 
     def copy(self):
         """create a copy of the current object."""
         return copy.deepcopy(self)
 
 
-class LogRegression(PolynomialRegression):
+class MultiSegmentRegression(PolynomialRegression):
     """
-    Ordinary Least Squares regression model in the form:
-
-            Y = b0 + b1 * X**1 + ... + bn * X**n + e
+    ordinary polynomial least squares regression splitted on multiple segments
 
     Parameters
     ----------
     degree: int = 1
-        the polynomial order
+        the polynomial degree
 
-    fit_intercept : bool, default=True
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations
-        (i.e. data is expected to be centered).
+    transform: Callable, default = lambda x: x
+        a callable function defining the type of transform to be applied
+        elementwise to each input value of X before the extension to the
+        required polynomial degree.
+
+    n_segments: int = 1
+        number of segments to be calculated
+
+    min_samples : int = 2
+        The minimum number of different samples defining the x axis of each line.
 
     copy_X : bool, default=True
         If True, X will be copied; else, it may be overwritten.
@@ -540,181 +334,70 @@ class LogRegression(PolynomialRegression):
         None means 1 unless in a joblib.parallel_backend context. -1 means
         using all processors. See Glossary for more details.
 
-    positive : bool, default=False
-        When set to True, forces the coefficients to be positive.
-        This option is only supported for dense arrays.
-
     Attributes
     ----------
-    base: int
-        the base of the log
-
     degree: int
         the polynomial degree
 
     betas: pandas DataFrame
         a dataframe reporting the regression coefficients for each feature
 
-    coef_: array of shape (n_features, ) or (n_targets, n_features)
-        Estimated coefficients for the linear regression problem.
-        If multiple targets are passed during the fit (y 2D), this is a
-        2D array of shape (n_targets, n_features), while if only one target
-        is passed, this is a 1D array of length n_features.
-
-    rank_: int
-        Rank of matrix X. Only available when X is dense.
-
-    singular: _array of shape (min(X, y),)
-        Singular values of X. Only available when X is dense.
-
-    intercept_: float or array of shape (n_targets,)
-        Independent term in the linear model.
-        Set to 0.0 if fit_intercept = False.
-
-    n_features_in_: int
-        Number of features seen during fit.
-
-    feature_names_in_: ndarray of shape (n_features_in_,)
-        Names of features seen during fit.
+    additional attributes are described from the mother scikit-learn
+    LinearRegression class object:
+    https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html
     """
 
-    _domain = (-np.inf, np.inf)
-    _codomain = (-np.inf, np.inf)
-    base: int | float
+    _n_segments: int
+    _min_samples: int
+    _betas:pd.DataFrame
 
     def __init__(
         self,
-        base: int | float = np.e,
         degree: int = 1,
-        fit_intercept: bool = True,
+        n_lines: int = 1,
+        min_samples: int = 2,
+        transform: Callable = lambda x: x,
         copy_X: bool = True,
         n_jobs: int = 1,
         positive: bool = False,
     ):
         super().__init__(
             degree=degree,
-            fit_intercept=fit_intercept,
+            transform=transform,
+            fit_intercept=True,
             copy_X=copy_X,
             n_jobs=n_jobs,
             positive=positive,
         )
-        self.base = base
-
-    def _adjust_degree(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-    ):
-        """
-        prepare the input to the fit and predict methods
-
-        Parameters
-        ----------
-        xarr : np.ndarray | pd.DataFrame | pd.Series | list | int | float
-           the training data
-
-        Returns
-        -------
-        yarr: pd.DataFrame | pd.Series
-            the transformed features
-        """
-        if isinstance(xarr, (pd.DataFrame, pd.Series)):
-            yarr = xarr.map(lambda x: np.log(x) / np.log(np.e))  # type: ignore
-        else:
-            yarr = np.log(xarr) / np.log(np.e)
-        if isinstance(xarr, list):
-            yarr = yarr.tolist()
-        elif isinstance(xarr, (int, float)):
-            yarr = yarr[0]
-        return super()._adjust_degree(yarr)
+        self._n_segments = n_lines
+        self._min_samples = min_samples
 
     def copy(self):
         """create a copy of the current object."""
         return copy.deepcopy(self)
 
+    @property
+    def n_segments(self):
+        """the number of lines defining the model"""
+        return self._n_segments
 
-class PowerRegression(LinearRegression):
-    """
-    Regression model having form:
+    @property
+    def min_samples(self):
+        """
+        return the minimum number of unique values on the x-axis to be used
+        for generating each single line of the regression model
+        """
+        return self._min_samples
 
-                Y = b0 * X1 ** b1 * ... * Xn ** bn + e
-
-    Parameters
-    ----------
-    fit_intercept : bool, default=True
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations
-        (i.e. data is expected to be centered).
-
-    copy_X : bool, default=True
-        If True, X will be copied; else, it may be overwritten.
-
-    n_jobs : int, default=None
-        The number of jobs to use for the computation. This will only provide
-        speedup in case of sufficiently large problems, that is if firstly
-        n_targets > 1 and secondly X is sparse or if positive is set to True.
-        None means 1 unless in a joblib.parallel_backend context. -1 means
-        using all processors. See Glossary for more details.
-
-    positive : bool, default=False
-        When set to True, forces the coefficients to be positive.
-        This option is only supported for dense arrays.
-
-    Attributes
-    ----------
-    betas: pandas DataFrame
-        a dataframe reporting the regression coefficients for each feature
-
-    coef_: array of shape (n_features, ) or (n_targets, n_features)
-        Estimated coefficients for the linear regression problem.
-        If multiple targets are passed during the fit (y 2D), this is a
-        2D array of shape (n_targets, n_features), while if only one target
-        is passed, this is a 1D array of length n_features.
-
-    rank_: int
-        Rank of matrix X. Only available when X is dense.
-
-    singular: _array of shape (min(X, y),)
-        Singular values of X. Only available when X is dense.
-
-    intercept_: float or array of shape (n_targets,)
-        Independent term in the linear model.
-        Set to 0.0 if fit_intercept = False.
-
-    n_features_in_: int
-        Number of features seen during fit.
-
-    feature_names_in_: ndarray of shape (n_features_in_,)
-        Names of features seen during fit.
-    """
-
-    _domain = (-np.inf, np.inf)
-    _codomain = (0, np.inf)
-
-    def __init__(
-        self,
-        fit_intercept: bool = True,
-        copy_X: bool = True,
-        n_jobs: int = 1,
-        positive: bool = False,
-    ):
-        super().__init__(
-            fit_intercept=fit_intercept,
-            copy_X=copy_X,
-            n_jobs=n_jobs,
-            positive=positive,
-        )
+    @property
+    def betas(self):
+        """coefficients and ranges"""
+        return self._betas
 
     def fit(
         self,
         xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
         yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
     ):
         """
         Fit the model.
@@ -727,24 +410,262 @@ class PowerRegression(LinearRegression):
         yarr: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
             Target values. Will be cast to X’s dtype if necessary.
 
-        sample_weight: array-like of shape (n_samples,), default=None
-            Individual weights for each sample.
+        Returns
+        -------
+        self
+            the fitted estimator
+        """
+        # format the input data
+        X = self._simplify(xarr, "X")
+        Y = self._simplify(yarr, "Y")
+
+        # check the inputs
+        if X.shape[1] != 1:
+            raise ValueError("xarr must be a 1D array")
+        if X.shape[0] != Y.shape[0]:
+            msg = "xarr and yarr must have equal sample size"
+            raise ValueError(msg)
+
+        # get the unique values
+        unique_x = np.unique(X.values.flatten()).astype(float)
+        n_unique = len(unique_x)
+
+        # apply the transform
+        X = X.map(self.transform)
+
+        # get all the possible combinations of segments
+        combs = []
+        for i in np.arange(1, self.n_segments):
+            start = self.min_samples * i
+            stop = n_unique - self.min_samples * (self.n_segments - i)
+            combs += [np.arange(start, stop)]
+        combs = list(product(*combs))
+
+        # remove those combinations having segments shorter than "min_samples"
+        combs = [i for i in combs if np.all(np.diff(i) >= self.min_samples)]
+
+        # generate the crossovers index matrix
+        combs = (
+            np.zeros((len(combs), 1)),
+            np.atleast_2d(combs),
+            np.ones((len(combs), 1)) * (n_unique - 1),
+        )
+        combs = np.hstack(combs).astype(int)
+
+        # iterate each combination to get their regression coefficients,
+        # the segments range, and sum of squares
+        betas_list = []
+        sses_list = []
+        for comb in combs:
+
+            # evaluate each segment of the current combination
+            combination_sse = 0
+            combination_betas_list = []
+            y0 = np.atleast_1d(Y.values[0]).astype(float)
+            x0 = np.atleast_1d(X.values[0]).astype(float)
+            for i, (i0, i1) in enumerate(zip(comb[:-1], comb[1:])):
+
+                # get x and y samples corresponding to the current segment
+                unq_vals = unique_x[np.arange(i0, i1 + 1)]
+                index = [np.where(X.values[:, 0] == i)[0] for i in unq_vals]
+                index = np.concatenate(index)
+                xmat = self._adjust_degree(X.iloc[index] - x0)
+                ymat = Y.iloc[index] - y0
+
+                # get the beta coefficients
+                bs = (xmat @ np.linalg.inv(xmat.T @ xmat)).T @ ymat
+
+                # update the combination error
+                ypred = (xmat @ bs.values + y0).values
+                ytrue = ymat.values + y0
+                sse = float(((ytrue - ypred) ** 2).sum())
+                combination_sse += sse
+
+                # update the coefficients list with the beta values of the
+                # current segment
+                bs.loc[-1, bs.columns] = y0
+                bs.loc[-2, bs.columns] = x0
+                bs.sort_index(inplace=True)
+                cols = ["alpha0"] + [f"beta{i}" for i in range(bs.shape[0] - 1)]
+                bs.index = pd.Index(cols)
+                r0 = -np.inf if i0 == 0 else x0
+                r1 = +np.inf if i1 == (n_unique - 1) else unq_vals[-1]
+                bs.columns = pd.MultiIndex.from_product(
+                    iterables=[ymat.columns.tolist(), [r0], [r1]],
+                    names=["FEATURE", "X0", "X1"],
+                )
+                combination_betas_list += [bs]
+
+                # update offsets
+                y0 = ypred[-1]
+                x0 = r1
+
+            # merge the combinations betas
+            combination_betas = pd.concat(combination_betas_list, axis=1)
+            combination_betas.sort_index(axis=1, inplace=True)
+            betas_list += [combination_betas]
+            sses_list += [combination_sse]
+
+        # get the best combination (i.e. the one with the lowest sse)
+        index = np.argmin(sses_list)
+
+        # get the beta coefficients corresponding to the minimum
+        # sum of squares error
+        self._betas = betas_list[index]
+
+        return self
+
+    def predict(
+        self,
+        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
+    ):
+        """
+        Fit the model.
+
+        Parameters
+        ----------
+        xarr: array-like or DataFrame of shape (n_samples, n_features)
+            Training data.
+
+        Returns
+        -------
+        yarr: DataFrame
+            the predicted values.
+        """
+        # check input
+        X = self._simplify(xarr, "X").map(self.transform)
+        if X.shape[1] != 1:
+            raise ValueError("xarr must be a 1D array")
+
+        # we now prepare the output (empty) dataframe
+        feats = self.betas.columns.to_frame().FEATURE.values.astype(str)
+        feats = np.unique(feats)
+        Y = pd.DataFrame(index=X.index, columns=feats)
+
+        # now we calculate the predicted values for each segment and feature
+        for feat, i0, i1 in self.betas.columns:
+            idx = np.where((X.values >= i0) & (X.values <= i1))[0]
+            coefs = self.betas[[(feat, i0, i1)]].values.astype(float)
+            x0 = coefs[0]
+            betas = coefs[1:]
+            xmat = self._adjust_degree(X.iloc[idx] - x0)
+            xmat.insert(0, "Intercept", np.ones((xmat.shape[0],)))
+            Y.loc[X.index[idx], [feat]] = (xmat @ betas).values
+
+        return Y
+
+
+class PowerRegression(PolynomialRegression):
+    """
+    Regression model having form:
+
+                Y = b0 + b1 * (fn(X) - b2) ** b3 + e
+
+    Parameters
+    ----------
+    fit_intercept : bool, default=True
+        Whether to calculate the intercept for this model. If set to False,
+        no intercept will be used in calculations
+        (i.e. data is expected to be centered).
+
+    transform: Callable, default = lambda x: x
+        a callable function defining the type of transform to be applied
+        elementwise to each input value of X before the extension to the
+        required polynomial degree.
+
+    copy_X : bool, default=True
+        If True, X will be copied; else, it may be overwritten.
+
+    n_jobs : int, default=None
+        The number of jobs to use for the computation. This will only provide
+        speedup in case of sufficiently large problems, that is if firstly
+        n_targets > 1 and secondly X is sparse or if positive is set to True.
+        None means 1 unless in a joblib.parallel_backend context. -1 means
+        using all processors. See Glossary for more details.
+
+    positive : bool, default=False
+        When set to True, forces the coefficients to be positive.
+        This option is only supported for dense arrays.
+
+    Attributes
+    ----------
+    betas: pandas DataFrame
+        a dataframe reporting the regression coefficients for each feature
+
+    additional attributes are described from the mother scikit-learn
+    LinearRegression class object:
+    https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html
+    """
+
+    _domain = (-np.inf, np.inf)
+    _codomain = (-np.inf, np.inf)
+    _betas:pd.DataFrame
+
+    def __init__(
+        self,
+        fit_intercept: bool = True,
+        transform: Callable = lambda x: x,
+        copy_X: bool = True,
+        n_jobs: int = 1,
+        positive: bool = False,
+    ):
+        super().__init__(
+            fit_intercept=fit_intercept,
+            transform=transform,
+            copy_X=copy_X,
+            n_jobs=n_jobs,
+            positive=positive,
+        )
+
+    @property
+    def betas(self):
+        """return the beta coefficients of the model"""
+        return self._betas
+
+    def fit(
+        self,
+        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
+        yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
+    ):
+        """
+        Fit the model.
+
+        Parameters
+        ----------
+        xarr: array-like or DataFrame of shape (n_samples, n_features)
+            Training data.
+
+        yarr: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
+            Target values. Will be cast to X’s dtype if necessary.
 
         Returns
         -------
         self
             the fitted estimator
         """
-        # first iteration
-        xvec = self._simplify(xarr, "X").map(np.log)  # type: ignore
-        yvec = self._simplify(yarr, "Y").map(np.log)  # type: ignore
-        fitted = super().fit(
-            xarr=xvec,
-            yarr=yvec,
-            sample_weight=sample_weight,
-        )
-        fitted.intercept_ = np.e**fitted.intercept_
+        # check the inputs
+        X = self._simplify(xarr, "X").map(self.transform)
+        Y = self._simplify(yarr, "Y")
+        if X.shape[1] != 1:
+            raise ValueError("xarr must be a 1D array or equivalent set")
 
+        # get b0 and b2
+        b0 = float(np.atleast_1d(0 if not self._has_intercept else (Y.min() - 1)))
+        b2 = -float(np.atleast_1d(X.min())) + 1
+
+        # transform the data
+        Yt = (Y - b0).map(np.log)
+        Xt = (X + b2).map(np.log)
+        fitted = super().fit(Xt, Yt)
+        b1 = float(np.e**fitted.intercept_)
+        b3 = float(np.squeeze(fitted.coef_)[-1])
+        fitted._betas = pd.DataFrame(
+            data = [b0, b1, b2, b3],
+            index = [f"beta{i}" for i in range(4)],
+            columns = Y.columns,
+        )
+        fitted._codomain = (b0, np.inf)
+        fitted._domain = (b2, np.inf)
         return fitted
 
     def predict(
@@ -764,166 +685,28 @@ class PowerRegression(LinearRegression):
         z: DataFrame
             the predicted values.
         """
-        xvec = self._simplify(xarr, "X")
-        return self.intercept_ * np.prod(xvec.values**self.coef_, axis=1)
+        # check the inputs
+        X = self._simplify(xarr, "X")
+        if X.shape[1] != 1:
+            raise ValueError("xarr must be a 1D array or equivalent set")
+
+        # apply the data transform
+        X = X.map(self.transform)
+
+        # check the domain
+        if float(X.min().values[0]) < self.domain[0]:
+            raise ValueError(f"X values must lie in the [{self.domain}] range.")
+
+        # get the predictions
+        b0, b1, b2, b3 = self.betas.values
+        return b0 + b1 * (X + b2) ** b3
 
     def copy(self):
         """create a copy of the current object."""
         return copy.deepcopy(self)
 
 
-class ExponentialRegression(LinearRegression):
-    """
-    Ordinary Least Squares regression model in the form:
-
-            Y = b0 + b1 * k**X1 + ... + bn * k**Xn + e
-
-    Parameters
-    ----------
-    base : float | int, default= np.e
-        the base of the exponent to be used
-
-    fit_intercept : bool, default=True
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations
-        (i.e. data is expected to be centered).
-
-    copy_X : bool, default=True
-        If True, X will be copied; else, it may be overwritten.
-
-    n_jobs : int, default=None
-        The number of jobs to use for the computation. This will only provide
-        speedup in case of sufficiently large problems, that is if firstly
-        n_targets > 1 and secondly X is sparse or if positive is set to True.
-        None means 1 unless in a joblib.parallel_backend context. -1 means
-        using all processors. See Glossary for more details.
-
-    positive : bool, default=False
-        When set to True, forces the coefficients to be positive.
-        This option is only supported for dense arrays.
-
-    Attributes
-    ----------
-    domain: tuple[float, float]
-        the domain of the model
-
-    codomain: tuple[float, float]
-        the codomain of the model
-
-    betas: pandas DataFrame
-        a dataframe reporting the regression coefficients for each feature
-
-    coef_: array of shape (n_features, ) or (n_targets, n_features)
-        Estimated coefficients for the linear regression problem.
-        If multiple targets are passed during the fit (y 2D), this is a
-        2D array of shape (n_targets, n_features), while if only one target
-        is passed, this is a 1D array of length n_features.
-
-    rank_: int
-        Rank of matrix X. Only available when X is dense.
-
-    singular: _array of shape (min(X, y),)
-        Singular values of X. Only available when X is dense.
-
-    intercept_: float or array of shape (n_targets,)
-        Independent term in the linear model.
-        Set to 0.0 if fit_intercept = False.
-
-    n_features_in_: int
-        Number of features seen during fit.
-
-    feature_names_in_: ndarray of shape (n_features_in_,)
-        Names of features seen during fit.
-    """
-
-    _domain = (-np.inf, np.inf)
-    _codomain = (-np.inf, np.inf)
-    _base = np.e
-
-    def __init__(
-        self,
-        base: float | int = np.e,
-        fit_intercept: bool = True,
-        copy_X: bool = True,
-        n_jobs: int = 1,
-        positive: bool = False,
-    ):
-        super().__init__(
-            fit_intercept=fit_intercept,
-            copy_X=copy_X,
-            n_jobs=n_jobs,
-            positive=positive,
-        )
-        self._base = base
-
-    @property
-    def base(self):
-        """the base of the exponents"""
-        return self._base
-
-    def fit(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
-    ):
-        """
-        Fit the model.
-
-        Parameters
-        ----------
-        X: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        y: array-like or DataFrame of shape (n_samples,)|(n_samples, n_targets)
-            Target values. Will be cast to X’s dtype if necessary.
-
-        sample_weight: array-like of shape (n_samples,), default=None
-            Individual weights for each sample.
-
-        Returns
-        -------
-        self
-            the fitted estimator
-        """
-        return super().fit(
-            xarr=self._simplify(xarr, "X").map(lambda x: self.base**x),  # type: ignore
-            yarr=self._simplify(yarr, "Y").values.astype(float),
-            sample_weight=sample_weight,
-        )
-
-    def predict(
-        self,
-        xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-    ):
-        """
-        Fit the model.
-
-        Parameters
-        ----------
-        X: array-like or DataFrame of shape (n_samples, n_features)
-            Training data.
-
-        Returns
-        -------
-        z: DataFrame
-            the predicted values.
-        """
-        xvec = self._simplify(xarr, "X").map(lambda x: self.base**x)  # type: ignore
-        return super().predict(xvec)
-
-    def copy(self):
-        """create a copy of the current object."""
-        return copy.deepcopy(self)
-
-
-class EllipseRegression(LinearRegression):
+class EllipseRegression(PolynomialRegression):
     """
     fit an Ellipse to the provided data according to the model:
         a * X**2 + b * XY + c * Y**2 + d * X + e * Y + f = 0
@@ -956,13 +739,9 @@ class EllipseRegression(LinearRegression):
         self,
         xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
         yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
+        sample_weight: (
+            np.ndarray | pd.DataFrame | pd.Series | list | int | float | None
+        ) = None,
     ):
         """
         Fit the model.
@@ -1395,7 +1174,7 @@ class EllipseRegression(LinearRegression):
         return copy.deepcopy(self)
 
 
-class CircleRegression(LinearRegression):
+class CircleRegression(PolynomialRegression):
     """
     generate a circle from the provided data in a least squares sense.
 
@@ -1422,13 +1201,9 @@ class CircleRegression(LinearRegression):
         self,
         xarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
         yarr: np.ndarray | pd.DataFrame | pd.Series | list | int | float,
-        sample_weight: np.ndarray
-        | pd.DataFrame
-        | pd.Series
-        | list
-        | int
-        | float
-        | None = None,
+        sample_weight: (
+            np.ndarray | pd.DataFrame | pd.Series | list | int | float | None
+        ) = None,
     ):
         """
         Fit the model.

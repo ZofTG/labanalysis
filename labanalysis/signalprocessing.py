@@ -87,7 +87,7 @@ from scipy import signal  # type: ignore
 from scipy.interpolate import CubicSpline  # type: ignore
 import numpy as np
 
-from .regression import LinearRegression
+from .regression import PolynomialRegression
 
 
 __all__ = [
@@ -1506,7 +1506,7 @@ def fillna(
             if len(rows) > 0:
                 cols = np.delete(np.arange(splined.shape[1]), i)
                 cols = cols[np.argsort(cmat[i][cols])[::-1][:n_regressors]]
-                lrm = LinearRegression().fit(xmat[:, cols], xmat[:, i])
+                lrm = PolynomialRegression().fit(xmat[:, cols], xmat[:, i])
                 vec = np.atleast_2d(lrm.predict(splined[rows][:, cols])).T
                 out[rows, i] = vec
 
