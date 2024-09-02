@@ -5,19 +5,21 @@ a set of functions dedicated to the use of least squares model regression
 
 Classes
 ---------
-LinearRegression
-    regression model in the form:
-            Y = b0 + b1 * X1 + ... + bn * Xn + e
-
-
 PolynomialRegression
     regression model in the form:
-            Y = b0 + b1 * X**1 + ... + bn * X**n + e
+            Y = b0 + b1 * fn(X)**1 + ... + bn * fn(X)**n + e
+
+
+MultiSegmentRegression
+    regression model in the form:
+            Ys = b0s + b1s * fn(Xs)**1 + ... + bns * fn(Xs)**n + e
+
+        with s denoting a limited continuous interval of X
 
 
 PowerRegression
     regression model having form:
-            Y = b0 * X1 ** b1 * ... + Xn ** bn + e
+            Y = b0 + b1 * [fn(X) + b2] ** b3 + e
 
 
 EllipseRegression
@@ -30,16 +32,19 @@ CircleRegression
 
 #! IMPORTS
 
+
+import copy
+import warnings
 from collections import namedtuple
 from itertools import product
 from typing import Callable, NamedTuple
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
-from numpy.typing import NDArray
+from sys import float_info
+
 import numpy as np
 import pandas as pd
-import copy
-
+from numpy.typing import NDArray
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
 
 __all__ = [
     "PolynomialRegression",
@@ -107,9 +112,9 @@ class PolynomialRegression(LinearRegression):
     _domain = (-np.inf, np.inf)
     _codomain = (-np.inf, np.inf)
     _degree: int
-    _names_out:list[str]
-    _names_in:list[str]
-    _transform:Callable
+    _names_out: list[str]
+    _names_in: list[str]
+    _transform: Callable
     _has_intercept: bool
 
     def __init__(
@@ -321,8 +326,9 @@ class MultiSegmentRegression(PolynomialRegression):
     n_segments: int = 1
         number of segments to be calculated
 
-    min_samples : int = 2
+    min_samples : int | None
         The minimum number of different samples defining the x axis of each line.
+        If not provided, the number of degree + 1 is used.
 
     copy_X : bool, default=True
         If True, X will be copied; else, it may be overwritten.
@@ -349,13 +355,13 @@ class MultiSegmentRegression(PolynomialRegression):
 
     _n_segments: int
     _min_samples: int
-    _betas:pd.DataFrame
+    _betas: pd.DataFrame
 
     def __init__(
         self,
         degree: int = 1,
         n_lines: int = 1,
-        min_samples: int = 2,
+        min_samples: int | None = None,
         transform: Callable = lambda x: x,
         copy_X: bool = True,
         n_jobs: int = 1,
@@ -364,13 +370,16 @@ class MultiSegmentRegression(PolynomialRegression):
         super().__init__(
             degree=degree,
             transform=transform,
-            fit_intercept=True,
+            fit_intercept=False,
             copy_X=copy_X,
             n_jobs=n_jobs,
             positive=positive,
         )
         self._n_segments = n_lines
-        self._min_samples = min_samples
+        if min_samples is None:
+            self._min_samples = self.degree + 1
+        else:
+            self._min_samples = min_samples
 
     def copy(self):
         """create a copy of the current object."""
@@ -467,7 +476,7 @@ class MultiSegmentRegression(PolynomialRegression):
 
                 # get x and y samples corresponding to the current segment
                 unq_vals = unique_x[np.arange(i0, i1 + 1)]
-                index = [np.where(X.values[:, 0] == i)[0] for i in unq_vals]
+                index = [np.where(X.values[:, 0] == j)[0] for j in unq_vals]
                 index = np.concatenate(index)
                 xmat = self._adjust_degree(X.iloc[index] - x0)
                 ymat = Y.iloc[index] - y0
@@ -486,7 +495,7 @@ class MultiSegmentRegression(PolynomialRegression):
                 bs.loc[-1, bs.columns] = y0
                 bs.loc[-2, bs.columns] = x0
                 bs.sort_index(inplace=True)
-                cols = ["alpha0"] + [f"beta{i}" for i in range(bs.shape[0] - 1)]
+                cols = ["alpha0"] + [f"beta{j}" for j in range(bs.shape[0] - 1)]
                 bs.index = pd.Index(cols)
                 r0 = -np.inf if i0 == 0 else x0
                 r1 = +np.inf if i1 == (n_unique - 1) else unq_vals[-1]
@@ -599,7 +608,7 @@ class PowerRegression(PolynomialRegression):
 
     _domain = (-np.inf, np.inf)
     _codomain = (-np.inf, np.inf)
-    _betas:pd.DataFrame
+    _betas: pd.DataFrame
 
     def __init__(
         self,
@@ -644,28 +653,32 @@ class PowerRegression(PolynomialRegression):
             the fitted estimator
         """
         # check the inputs
-        X = self._simplify(xarr, "X").map(self.transform)
+        X = self._simplify(xarr, "X")
+        K = X.map(self.transform)
         Y = self._simplify(yarr, "Y")
-        if X.shape[1] != 1:
+        if K.shape[1] != 1:
             raise ValueError("xarr must be a 1D array or equivalent set")
 
         # get b0 and b2
-        b0 = float(np.atleast_1d(0 if not self._has_intercept else (Y.min() - 1)))
-        b2 = -float(np.atleast_1d(X.min())) + 1
+        b0 = float(np.atleast_1d(0 if not self._has_intercept else Y.min())) - 1
+        b2 = float(np.atleast_1d(K.min())) - 1
 
         # transform the data
         Yt = (Y - b0).map(np.log)
-        Xt = (X + b2).map(np.log)
+        Xt = (K - b2).map(np.log)
         fitted = super().fit(Xt, Yt)
         b1 = float(np.e**fitted.intercept_)
         b3 = float(np.squeeze(fitted.coef_)[-1])
         fitted._betas = pd.DataFrame(
-            data = [b0, b1, b2, b3],
-            index = [f"beta{i}" for i in range(4)],
-            columns = Y.columns,
+            data=[b0, b1, b2, b3],
+            index=[f"beta{i}" for i in range(4)],
+            columns=Y.columns,
         )
+
+        # update domain and codomain
         fitted._codomain = (b0, np.inf)
-        fitted._domain = (b2, np.inf)
+        fitted._domain = (float(X.loc[(K - 1 == b2).any(axis=1)].index[0]), np.inf)
+
         return fitted
 
     def predict(
@@ -691,15 +704,26 @@ class PowerRegression(PolynomialRegression):
             raise ValueError("xarr must be a 1D array or equivalent set")
 
         # apply the data transform
-        X = X.map(self.transform)
+        K = X.map(self.transform)
 
         # check the domain
-        if float(X.min().values[0]) < self.domain[0]:
-            raise ValueError(f"X values must lie in the [{self.domain}] range.")
+        outside_domain = X.loc[(X < self.domain[0]).any(axis=1)].index.to_numpy()
+        if np.any(outside_domain):
+            warnings.warn(f"X values must lie in the [{self.domain}] range.")
+
+        # ensure to evaluate only the valid range
+        valid = K.notna().any(axis=1) & (K >= self.domain[0]).any(axis=1)
 
         # get the predictions
         b0, b1, b2, b3 = self.betas.values
-        return b0 + b1 * (X + b2) ** b3
+        cols = self.get_feature_names_out()
+        Y = pd.DataFrame(
+            data=np.ones((X.shape[0], len(cols))) * np.nan,
+            columns=cols,
+            index=X.index,
+        )
+        Y.loc[valid] = b0 + b1 * (K.loc[valid] + b2) ** b3
+        return Y
 
     def copy(self):
         """create a copy of the current object."""
