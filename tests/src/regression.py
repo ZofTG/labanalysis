@@ -6,6 +6,8 @@
 import sys
 from os.path import dirname
 from typing import Any
+
+import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path += [dirname(dirname(dirname(__file__)))]
@@ -43,37 +45,67 @@ def _add_noise(
 
 def test_regression():
     """test the regression module"""
-    x = np.linspace(1, 101, 101)
+    x = np.linspace(0, 100, 101)
 
     # multiline regression
     print("\nTESTING MULTISEGMENT REGRESSION")
-    b_in = [2, -0.5]
-    y = _add_noise(b_in[0] * x ** b_in[1], 0.1)
-    model = MultiSegmentRegression(degree=1, n_lines=2, min_samples=3).fit(x, y)
+    y = _add_noise(0.2 * x**0.5, 0.2)
+    model = MultiSegmentRegression(degree=1, n_lines=2).fit(x, y)
     betas = model.betas
     z = model.predict(x).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
-    print(f"Input betas: {b_in}\nOutput betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    plt.close()
+    plt.plot(x, y, label="RAW")
+    plt.plot(x, z, "r--", label="FITTED")
+    plt.legend()
+    plt.title("MULTISEGMENT REGRESSION")
+    plt.show()
 
     # Log regression
     print("\nTESTING LOG REGRESSION")
-    b_in = [2, 0.5, 0.1]
-    y = _add_noise(b_in[0] + np.log(x) * b_in[1] + np.log(x) ** 2 * b_in[2], 0.1)
-    model = PolynomialRegression(degree=1, transform=np.log).fit(x, y)
-    betas = model.betas.values.flatten().tolist()
+    y = _add_noise(0.5 + np.log(x + 1) * 0.2, 0.1)
+    model = PolynomialRegression(degree=1, transform=np.log).fit(x + 1, y)
+    betas = model.betas
+    z = model.predict(x + 1).values.flatten()
+    rmse = np.mean((y - z) ** 2) ** 0.5
+    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    plt.close()
+    plt.plot(x + 1, y, label="RAW")
+    plt.plot(x + 1, z, "r--", label="FITTED")
+    plt.legend()
+    plt.title("LOG REGRESSION")
+    plt.show()
+
+    # polynomial regression
+    print("\nTESTING POLYNOMIAL REGRESSION")
+    y = _add_noise(0.5 + 0.2 * x + 0.4 * x**2, 0.1)
+    model = PolynomialRegression(degree=2).fit(x, y)
+    betas = model.betas
     z = model.predict(x).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
-    print(f"Input betas: {b_in}\nOutput betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    plt.close()
+    plt.plot(x, y, label="RAW")
+    plt.plot(x, z, "r--", label="FITTED")
+    plt.legend()
+    plt.title("POLYNOMIAL REGRESSION")
+    plt.show()
 
     # power regression
     print("\nTESTING POWER REGRESSION")
-    b_in = [2, -0.5]
-    y = abs(_add_noise(b_in[0] * x ** b_in[1], 0.1))
+    y = abs(_add_noise(2 * x**0.5, 0.1))
     model = PowerRegression().fit(x, y)
-    betas = model.betas.values.flatten().tolist()
+    betas = model.betas
     z = model.predict(x).values.flatten()
-    rmse = np.mean((y - z) ** 2) ** 0.5
-    print(f"Input betas: {b_in}\nOutput betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    rmse = np.nanmean((y - z) ** 2) ** 0.5
+    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
+    plt.close()
+    plt.plot(x, y, label="RAW")
+    plt.plot(x, z, "r--", label="FITTED")
+    plt.legend()
+    plt.title("POWER REGRESSION")
+    plt.show()
 
 
 if __name__ == "__main__":

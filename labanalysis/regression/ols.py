@@ -116,6 +116,7 @@ class PolynomialRegression(LinearRegression):
     _names_in: list[str]
     _transform: Callable
     _has_intercept: bool
+    _betas: pd.DataFrame
 
     def __init__(
         self,
@@ -159,17 +160,7 @@ class PolynomialRegression(LinearRegression):
     @property
     def betas(self):
         """return the beta coefficients of the model"""
-        rows = len(self.get_feature_names_in()) + 1
-        names = self.get_feature_names_out()
-        cols = len(names)
-        betas = np.zeros((rows, cols))
-        betas[0, 0] = self.intercept_
-        betas[1:, :] = np.atleast_2d(self.coef_).T
-        return pd.DataFrame(
-            data=betas,
-            index=[f"beta{i}" for i in np.arange(rows)],
-            columns=names,
-        )
+        return self._betas
 
     def get_feature_names_in(self):
         """return the input feature names seen at fit time"""
@@ -274,11 +265,26 @@ class PolynomialRegression(LinearRegression):
         self
             the fitted estimator
         """
+
+        # get the input and output variables
         Y = self._simplify(yarr, "Y")
         self._names_out = Y.columns.tolist()
         X = self._adjust_degree(self._simplify(xarr, "X").map(self.transform))
         self._names_in = X.columns.tolist()
-        return super().fit(X.values, Y)
+
+        # fit the model
+        fitted = super().fit(X.values, Y)
+
+        # update the betas
+        coefs = [np.atleast_2d(fitted.intercept_), fitted.coef_[:, 1:]]
+        coefs = np.concatenate(coefs, axis=1).T
+        fitted._betas = pd.DataFrame(
+            data=coefs,
+            index=[f"beta{i}" for i in np.arange(self.degree + 1)],
+            columns=self.get_feature_names_out(),
+        )
+
+        return fitted
 
     def predict(
         self,
@@ -355,7 +361,6 @@ class MultiSegmentRegression(PolynomialRegression):
 
     _n_segments: int
     _min_samples: int
-    _betas: pd.DataFrame
 
     def __init__(
         self,
@@ -397,11 +402,6 @@ class MultiSegmentRegression(PolynomialRegression):
         for generating each single line of the regression model
         """
         return self._min_samples
-
-    @property
-    def betas(self):
-        """coefficients and ranges"""
-        return self._betas
 
     def fit(
         self,
@@ -470,7 +470,7 @@ class MultiSegmentRegression(PolynomialRegression):
             # evaluate each segment of the current combination
             combination_sse = 0
             combination_betas_list = []
-            y0 = np.atleast_1d(Y.values[0]).astype(float)
+            y0 = 0
             x0 = np.atleast_1d(X.values[0]).astype(float)
             for i, (i0, i1) in enumerate(zip(comb[:-1], comb[1:])):
 
@@ -478,8 +478,10 @@ class MultiSegmentRegression(PolynomialRegression):
                 unq_vals = unique_x[np.arange(i0, i1 + 1)]
                 index = [np.where(X.values[:, 0] == j)[0] for j in unq_vals]
                 index = np.concatenate(index)
-                xmat = self._adjust_degree(X.iloc[index] - x0)
                 ymat = Y.iloc[index] - y0
+                xmat = self._adjust_degree(X.iloc[index] - x0)
+                if i == 0:
+                    xmat.insert(0, "Intercept", np.ones((xmat.shape[0],)))
 
                 # get the beta coefficients
                 bs = (xmat @ np.linalg.inv(xmat.T @ xmat)).T @ ymat
@@ -492,11 +494,13 @@ class MultiSegmentRegression(PolynomialRegression):
 
                 # update the coefficients list with the beta values of the
                 # current segment
-                bs.loc[-1, bs.columns] = y0
-                bs.loc[-2, bs.columns] = x0
+                if i != 0:
+                    bs.index = pd.Index([f"beta{j + 1}" for j in range(bs.shape[0])])
+                    bs.loc["beta0", bs.columns] = y0
+                else:
+                    bs.index = pd.Index([f"beta{j}" for j in range(bs.shape[0])])
+                bs.loc["alpha0", bs.columns] = x0
                 bs.sort_index(inplace=True)
-                cols = ["alpha0"] + [f"beta{j}" for j in range(bs.shape[0] - 1)]
-                bs.index = pd.Index(cols)
                 r0 = -np.inf if i0 == 0 else x0
                 r1 = +np.inf if i1 == (n_unique - 1) else unq_vals[-1]
                 bs.columns = pd.MultiIndex.from_product(
@@ -608,7 +612,6 @@ class PowerRegression(PolynomialRegression):
 
     _domain = (-np.inf, np.inf)
     _codomain = (-np.inf, np.inf)
-    _betas: pd.DataFrame
 
     def __init__(
         self,
@@ -619,17 +622,13 @@ class PowerRegression(PolynomialRegression):
         positive: bool = False,
     ):
         super().__init__(
+            degree=1,
             fit_intercept=fit_intercept,
             transform=transform,
             copy_X=copy_X,
             n_jobs=n_jobs,
             positive=positive,
         )
-
-    @property
-    def betas(self):
-        """return the beta coefficients of the model"""
-        return self._betas
 
     def fit(
         self,
@@ -660,8 +659,10 @@ class PowerRegression(PolynomialRegression):
             raise ValueError("xarr must be a 1D array or equivalent set")
 
         # get b0 and b2
-        b0 = float(np.atleast_1d(0 if not self._has_intercept else Y.min())) - 1
-        b2 = float(np.atleast_1d(K.min())) - 1
+        b0 = float(np.atleast_1d(0 if not self._has_intercept else Y.min() - 1))
+        b2 = float(np.atleast_1d(K.min().values.astype(float))) - 1
+        if b2 > -1:
+            b2 = 0
 
         # transform the data
         Yt = (Y - b0).map(np.log)
@@ -722,7 +723,7 @@ class PowerRegression(PolynomialRegression):
             columns=cols,
             index=X.index,
         )
-        Y.loc[valid] = b0 + b1 * (K.loc[valid] + b2) ** b3
+        Y.loc[valid] = b0 + b1 * (K.loc[valid] - b2) ** b3
         return Y
 
     def copy(self):
