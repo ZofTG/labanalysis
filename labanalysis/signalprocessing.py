@@ -1402,7 +1402,7 @@ def outlyingness(
 
 
 def gram_schmidt(
-    points: np.ndarray[Any, np.dtype[np.float64]],
+    *points: np.ndarray[Any, np.dtype[np.number]],
 ):
     """
     Return the orthogonal basis defined by a set of points using the
@@ -1415,20 +1415,21 @@ def gram_schmidt(
 
     Returns
     -------
-    ortho: np.ndarray[Any, np.dtype[np.float64]]
-        a NxN numpy.ndarray containing the orthogonalized arrays.
+    a tuple of orthonormal versors
     """
 
     # calculate the projection points
     w_mat = []
     for i, proj in enumerate(points):
-        w_arr = np.copy(proj).astype(np.float32)
-        for j in points[:i, :]:
+        w_arr = proj.astype(float).flatten()
+        for j in points[:i]:
             w_arr -= np.inner(proj, j) / np.inner(j, j) * j
         w_mat += [w_arr]
 
     # normalize
-    return np.vstack([v / np.sqrt(np.sum(v**2)) for v in w_mat])
+    w_mat = np.vstack(*np.atleast_2d(w_mat))
+    norm = np.ones_like(w_mat) * np.sum(w_mat**2, axis=0) ** 0.5
+    return (i for i in (w_mat / norm))
 
 
 def fillna(

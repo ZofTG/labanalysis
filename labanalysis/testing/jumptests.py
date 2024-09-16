@@ -2,592 +2,580 @@
 
 #! IMPORTS
 
-from typing import Any, Iterable, Literal
-from os.path import exists
-import pandas as pd
+
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-from labio import read_tdf
-from .. import signalprocessing
+from .. import signalprocessing as sp
+from .frames import StateFrame
 
-__all__ = []
+__all__ = ["StaticUprightStance", "SquatJump", "SquatJumpTest"]
 
-#! FUNCTIONS
+#! CONSTANTS
+
+G = 9.80665  # acceleration of gravity in m/s^2
 
 
 #! CLASSES
 
 
-class _Baseline:
+class StaticUprightStance(StateFrame):
     """
-    baseline class used internally for analysing compute the mass of the subject and
-    the emg baseline signal.
+    class defining a static upright stance.
 
     Parameters
     ----------
-    file_path: str
-        the path to the .tdf file containing baseline data
+    markers: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more triplets of columns like:
+                | <NAME> | <NAME> | <NAME> |
+                |    X   |   Y    |    Z   |
+                |    m   |   m    |    m   |
+            * the time instant of each sample in seconds as index.
 
-    marker_fcut: int | float | np._NumberType = 6
-        cut frequency of the lowpass filter, in Hz
+    forceplatforms: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more packs of columns like:
+                | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> |
+                | ORIGIN | ORIGIN | ORIGIN |  FORCE | FORCE  | FORCE  | TORQUE | TORQUE | TORQUE |
+                |    X   |   Y    |    Z   |    X   |   Y    |    Z   |    X   |   Y    |    Z   |
+                |    m   |   m    |    m   |    N   |   N    |    N   |    Nm  |   Nm   |   Nm   |
+            * the time instant of each sample in seconds as index.
 
-    marker_order: int | float | np._NumberType = 4
-        order of the lowpass filter
-
-    marker_phase_corrected: bool | np.bool_ = True
-        if True the phase correction is applyed by appliyng a filter second time with the
-        signal provided in the reverse order
-
-    force_fcut: int | float | np._NumberType = 50
-        cut frequency of the lowpass filter, in Hz
-
-    force_order: int | float | np._NumberType = 4
-        order of the lowpass filter
-
-    force_phase_corrected: bool | np.bool_ = True
-        if True the phase correction is applyed by appliyng a filter second time with the
-        signal provided in the reverse order
-
-    emg_fcut: tuple[int | float, int | float] | list[int | float] | np.ndarray[Literal[1], np._NumberType] = (30, 450)
-        cut frequency (the upper and lower limit) of the passband filter in Hz
-
-    emg_order: int | float | np._NumberType = 4
-        order of the passband filter
-
-    emg_phase_corrected: bool | np.bool_ = True
-        if True the phase correction is applyed by appliyng a filter second time with the signal
-        provided in the reverse order
-
-    emg_rms_window: int | float | np._NumberType = 0.2
-        the Root Mean Square window provided in seconds
+    emgs: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more packs of columns like:
+                | <NAME> |
+                |    V   |
+            * the time instant of each sample in seconds as index.
 
     Attributes
     ----------
-    file_path : str
-        the path of the file to analyze
+    markers
+        the kinematic data
 
-    markers : pd.DataFrame
-        the processed kinematic data
+    forceplatforms
+        the force data
 
-    forces : pd.DataFrame
-        the processed force data
+    emgs
+        the EMG data
 
-    emgs : pd.DataFrame
-        the processed EMG data
-
-    emg_processing_options : dict[str, Any]
+    emg_processing_options
         the parameters to set the filtering of the EMG signal
 
-    force_processing_options: dict[str, Any]
+    forceplatform_processing_options
         the parameters to set the filtering of the force signal
 
-    marker_processing_options: dict[str, Any]
+    marker_processing_options
         the parameters to set the filtering of the kinematic signals
 
-    Procedure
-    ---------
+    weight
+        the bodyweight of the subject in kg
 
-    Markers
-        1. only the 'S2' marker is used
-        2. missing values at the beginning and end of the data are removed
-        3. the data are low-pass filtered by means of a lowpass, Butterworth filter with the entered marker options
+    emg_norms
+        descriptive statistics of the processed emg amplitude
 
-    Forces
-        1. only the force amplitude of the 'fRes' force platform data are retained
-        2. the data in between the start and end of the 'S2' marker are retained.
-        3. missing values in the middle of the data are replaced by zeros
-        4. the data are low-pass filtered by means of a lowpass, Butterworth filter with the entered force options
+    Methods
+    -------
+    to_dataframe
+        return the available data as single pandas DataFrame.
 
-    EMGs (optional)
-        1. the data in between the start and end of the 'S2' marker are retained.
-        2. the signals are bandpass filtered with the provided emg options
-        3. the root-mean square filter with the given time window is applied to get the envelope of the signals
+    to_stateframe
+        return the available data as StateFrame.
+
+    copy
+        return a copy of the object.
+
+    slice
+        return a subset of the object.
+
+    process_data
+        process internal data to remove/replace missing values and smooth the
+        signals.
+
+    is_processed
+        returns True if the actual object already run the process data method
+
+    to_reference_frame
+        rotate the actual object to a new reference frame defined by
+        the provided origin and axes.
     """
 
-    # *class variables
-
-    _file_path: str
-    _tdf: dict[str, Any]
-    _markers: pd.DataFrame
-    _forces: pd.DataFrame
-    _emgs: pd.DataFrame
-    _emg_processing_options: dict[str, Any] = dict(
-        fcut=[30, 400],
-        order=5,
-        phase_corrected=True,
-        rms_window=0.2,
-    )
-    _force_processing_options: dict[str, Any] = dict(
-        fcut=50,
-        order=5,
-        phase_corrected=True,
-    )
-    _marker_processing_options: dict[str, Any] = dict(
-        fcut=6,
-        order=5,
-        phase_corrected=True,
-    )
-
-    # *setters
-
-    def _set_file_path(self, file_path: str):
-        """
-        set the file path for the baseline acquisition
-
-        Parameters
-        ----------
-        file_path: str
-            the path to the .tdf file containing baseline data
-        """
-        if (
-            not isinstance(file_path, str)
-            or not file_path.endswith(".tdf")
-            or not exists(file_path)
-        ):
-            raise ValueError("file_path must be a valid .tdf file")
-        self._file_path = file_path
-
-    def _set_emg_processing_options(
-        self,
-        fcut: (
-            tuple[int | float, int | float]
-            | list[int | float]
-            | np.ndarray[Literal[1], np._NumberType]
-            | None
-        ) = None,
-        order: int | float | np._NumberType | None = None,
-        phase_corrected: bool | np.bool_ | None = None,
-        rms_window: int | float | np._NumberType | None = None,
-    ):
-        """
-        set the parameters of the filtering (bandpass filter and Root Mean Square) of the EMG signal
-
-        Parameters
-        ----------
-        fcut: tuple[int | float, int | float] | list[int | float] | np.ndarray[Literal[1], np._NumberType] | None = None
-            cut frequency (the upper and lower limit) of the passband filter in Hz
-
-        order: int | float | np._NumberType | None = None
-            order of the passband filter
-
-        phase_corrected: bool | np.bool_ | None = None
-            if True the phase correction is applyed by appliyng a filter second time with the signal provided in the reverse order
-
-        rms_window: int | float | np._NumberType | None = None
-            the Root Mean Square window provided in seconds
-        """
-        if fcut is not None:
-            cut = np.array([fcut]).flatten()  # lo trasformo in un array unidimensionale
-            if not self._is_1darray(fcut) or len(fcut) != 2:
-                raise ValueError("fcut must be an iterable with len = 2")
-            if not all([self._is_numeric(i) for i in fcut]):
-                raise ValueError("All elements of fcut must be numeric")
-            self._emg_processing_options["fcut"] = np.array(cut).astype(float)
-
-        if order is not None:
-            if not self._is_numeric(order):
-                raise ValueError("order must be a number")
-            if order <= 0:
-                raise ValueError("order must be a number > 0")
-            self._emg_processing_options["order"] = order
-
-        if phase_corrected is not None:
-            msg = "phase_corrected must be a boolean"
-            ph_cor = np.array([phase_corrected]).flatten()
-            if len(ph_cor) != 1:
-                raise ValueError(msg)
-            try:
-                ph_cor = bool(ph_cor[0])
-            except Exception as exc:
-                raise ValueError(msg) from exc
-            self._emg_processing_options["phase_corrected"] = ph_cor
-
-        if rms_window is not None:
-            if not self._is_numeric(rms_window):
-                raise ValueError("order must be a number")
-            if rms_window <= 0:
-                raise ValueError("order must be a number > 0")
-            self._emg_processing_options["rms_window"] = rms_window
-
-    def _set_force_processing_options(
-        self,
-        fcut: int | float | np._NumberType | None = None,
-        order: int | float | np._NumberType | None = None,
-        phase_corrected: bool | np.bool_ | None = None,
-    ):
-        """
-        set the parameters of the lowband filtering of the force data
-
-        Attributes
-        ----------
-        fcut: int | float | np._NumberType | None = None
-            cut frequency of the lowband filter, in Hz
-
-        order: int | float | np._NumberType | None = None
-            order of the lowband filter
-
-        phase_corrected: bool | np.bool_ | None = None
-            if True the phase correction is applyed by appliyng a filter second time with the signal provided in the reverse order
-
-        """
-
-        if fcut is not None:
-            if not self._is_numeric(fcut):
-                raise ValueError("order must be a number")
-            if fcut <= 0:
-                raise ValueError("order must be a number > 0")
-            self._force_processing_options["fcut"] = fcut
-
-        if order is not None:
-            if not self._is_numeric(order):
-                raise ValueError("order must be a number")
-            if order <= 0:
-                raise ValueError("order must be a number > 0")
-            self._force_processing_options["order"] = order
-
-        if phase_corrected is not None:
-            msg = "phase_corrected must be a boolean"
-            ph_cor = np.array([phase_corrected]).flatten()
-            if len(ph_cor) != 1:
-                raise ValueError(msg)
-            try:
-                ph_cor = bool(ph_cor[0])
-            except Exception as exc:
-                raise ValueError(msg) from exc
-            self._force_processing_options["phase_corrected"] = ph_cor
-
-    def _set_marker_processing_options(
-        self,
-        fcut: int | float | np._NumberType | None = None,
-        order: int | float | np._NumberType | None = None,
-        phase_corrected: bool | np.bool_ | None = None,
-    ):
-        """
-        set the parameters of the lowband filtering of the kinematic data
-
-        Attributes
-        ----------
-        fcut: int | float | np._NumberType | None = None
-            cut frequency of the lowband filter, in Hz
-
-        order: int | float | np._NumberType | None = None
-            order of the lowband filter
-
-        phase_corrected: bool | np.bool_ | None = None
-            if True the phase correction is applyed by appliyng a filter second time with the signal provided in the reverse order
-
-        """
-
-        if fcut is not None:
-            if not self._is_numeric(fcut):
-                raise ValueError("order must be a number")
-            if fcut <= 0:
-                raise ValueError("order must be a number > 0")
-            self._marker_processing_options["fcut"] = fcut
-
-        if order is not None:
-            if not self._is_numeric(order):
-                raise ValueError("order must be a number")
-            if order <= 0:
-                raise ValueError("order must be a number > 0")
-            self._marker_processing_options["order"] = order
-
-        if phase_corrected is not None:
-            msg = "phase_corrected must be a boolean"
-            ph_cor = np.array([phase_corrected]).flatten()
-            if len(ph_cor) != 1:
-                raise ValueError(msg)
-            try:
-                ph_cor = bool(ph_cor[0])
-            except Exception as exc:
-                raise ValueError(msg) from exc
-            self._marker_processing_options["phase_corrected"] = ph_cor
-
-    # *getters
+    # * attributes
 
     @property
-    def file_path(self):
-        """
-        the path to the .tdf file
-        """
-        return self._file_path
+    def weight(self):
+        """the subject's weight in kg"""
+        return float(np.median(self.forceplatforms.Y.values.astype(float))) / G
 
     @property
-    def emg_processing_options(self):
+    def emg_norms(self):
         """
-        the EMG processing options
+        the EMG signal norms, i.e. a DataFrame with:
+            - column names equal to the EMG signal names with units
+            - index defining the target metric:
+                * mean
+                * std
+                * min
+                * q1
+                * median
+                * q3
+                * max
         """
-        return self._emg_processing_options
+        norms = self.emgs.describe().drop(["count"], axis=0)
+        norms.index = pd.Index(["mean", "std", "min", "q1", "median", "q3", "max"])
+        norms.loc["iqr", norms.columns] = norms.loc["q3"] - norms.loc["q1"]
+        return norms
 
-    @property
-    def force_processing_options(self):
-        """
-        the force processing options
-        """
-        return self._force_processing_options
+    # * methods
 
-    @property
-    def marker_processing_options(self):
-        """
-        the marker processing options
-        """
-        return self._marker_processing_options
+    def to_stateframe(self):
+        """return the actual object as StateFrame"""
+        return super().copy()
 
-    @property
-    def markers(self):
-        """
-        the markers coordinates
-        """
-        return self._markers
+    def copy(self):
+        """create a copy of the object"""
+        return self.from_stateframe(self)
 
-    @property
-    def forces(self):
-        """
-        the forces amplitudes
-        """
-        return self._forces
+    # * constructors
 
-    @property
-    def emgs(self):
-        """
-        the EMGs signals
-        """
-        return self._emgs
-
-    # *methods
-
-    def _is_numeric(self, obj: object):
-        """
-        check if obj is a number
-
-        Parameter
-        ---------
-        obj : object
-            the object to be checked
-
-        Return
-        ------
-        True if obj is a number, False otherwise
-        """
-        wind = np.array([obj]).flatten()  # lo trasformo in un array unidimensionale
-        if len(wind) != 1:
-            return False
-        try:
-            wind = float(wind[0])
-        except Exception as exc:
-            return False
-        return True
-
-    def _is_1darray(self, obj: object, size: int | None = None):
-        """
-        check if 'obj' is a 1d iterable with (optional) len 'size'
-
-        Parameter
-        ---------
-        obj : object
-            the object to be checked
-
-        size: int | None = None
-            the required size of the array (if provided)
-
-        Return
-        ------
-        True if obj is an iterable with the required length
-        """
-        if not isinstance(obj, Iterable):
-            return False
-        wind = np.array(obj)
-        if wind.ndim != 1:
-            return False
-        if size is not None:
-            if not isinstance(size, int):
-                raise ValueError("size must be None or an int object")
-            if len(wind) != size:
-                return False
-        return True
-
-    def _process_data(self):
-        """
-        process of all tdf data
-
-        Markers
-        -------
-        1. only the 'S2' marker is used
-        2. missing values at the beginning and end of the data are removed
-        3. the data are low-pass filtered by means of a lowpass, Butterworth filter with the entered marker options
-
-        Forces
-        ------
-        1. only the force amplitude of the 'fRes' force platform data are retained
-        2. the data in between the start and end of the 'S2' marker are retained.
-        3. missing values in the middle of the data are replaced by zeros
-        4. the data are low-pass filtered by means of a lowpass, Butterworth filter with the entered force options
-
-        EMGs (optional)
-        ----
-        1. the data in between the start and end of the 'S2' marker are retained.
-        2. the signals are bandpass filtered with the provided emg options
-        3. the root-mean square filter with the given time window is applied to get the envelope of the signals
-        """
-
-        # controllo che sia disponibile il marker S2
-        try:
-            markers_raw: pd.DataFrame = self._tdf["CAMERA"]["TRACKED"]["TRACKS"]
-        except Exception as exc:
-            raise ValueError(
-                "the provided .tdf file does not contain marker data."
-            ) from exc
-        marker_lbls = np.unique(markers_raw.columns.get_level_values(level=0).to_list())
-        if not any([i == "S2" for i in marker_lbls]):
-            raise ValueError("marker label S2 not found in the .tdf file")
-        marker_raw: pd.DataFrame = markers_raw["S2"]
-
-        # tolgo i valori nulli all'inizio ed alla fine del file
-        marker_valid = marker_raw.notna().all(axis=1)
-        index_start, index_stop = np.where(marker_valid.values)[0][0, -1]
-        marker_pro: pd.DataFrame = marker_raw.iloc[
-            np.arange(index_start, index_stop + 1)
-        ]
-        marker_pro = signalprocessing.fillna(marker_pro)
-
-        # applico il filtro previsto
-        marker_fsamp = float(1 / np.mean(np.diff(marker_pro.index.to_numpy())))
-        self._markers = pd.DataFrame(
-            marker_pro.apply(
-                signalprocessing.butterworth_filt,
-                raw=True,
-                fsamp=marker_fsamp,
-                ftype="lowpass",
-                **self.marker_processing_options,
-            )
-        )
-
-        # processo il segnale di forza
-        try:
-            forces_raw: pd.DataFrame = self._tdf["FORCE_PLATFORM"]["TRACKED"]["TRACKS"]
-        except Exception as exc:
-            raise ValueError(
-                "the provided .tdf file does not contain force data."
-            ) from exc
-
-        # mantengo solo i dati di forza di fRes
-        try:
-            forces_raw = forces_raw["fRes"]["FORCE"]
-        except Exception as exc:
-            raise ValueError(
-                "the provided .tdf file doe not contain any force platform data named 'fRes'."
-            ) from exc
-
-        # rimuovo i dati mancanti all'inizio ed alla fine della prova
-        index_start = np.where(forces_raw.index == self.markers.index[0])[0]
-        index_stop = np.where(forces_raw.index == self.markers.index[-1])[0]
-        forces_pro = forces_raw.iloc[np.arange(index_start, index_stop)]
-
-        # sostituisco con zeri i nan presenti all'interno della prova
-        forces_pro = signalprocessing.fillna(forces_pro, value=0)
-
-        # filtro i dati di forza
-        force_fsamp = float(1 / np.mean(np.diff(forces_pro.index.to_numpy())))
-        self._forces = forces_pro.apply(
-            signalprocessing.butterworth_filt,
-            raw=True,
-            fsamp=force_fsamp,
-            ftype="lowpass",
-            **self.force_processing_options,
-        )
-
-        # controllo sia disponibile il segnale emg
-        try:
-            emgs_raw: pd.DataFrame = self._tdf["EMG"]["TRACKS"]
-        except Exception as exc:
-            emgs_raw = pd.DataFrame()
-            raise UserWarning(
-                "the provided .tdf file does not contain EMG data."
-            ) from exc
-
-        # processo il segnale emg
-        if emgs_raw.shape[0] > 0:
-            index_start = np.where(emgs_raw.index == self.markers.index[0])[0]
-            index_stop = np.where(emgs_raw.index == self.markers.index[-1])[0]
-            emgs_pro = emgs_raw.iloc[np.arange(index_start, index_stop)]
-            bp_options = self.emg_processing_options.copy()
-            bp_options.pop("rms_window")
-            bp_options.update(
-                fsamp=float(1 / np.mean(np.diff(emgs_pro.index.to_numpy())))
-            )
-            emgs_pro = pd.DataFrame(
-                emgs_pro.apply(
-                    signalprocessing.butterworth_filt,
-                    raw=True,
-                    fsamp=marker_fsamp,
-                    ftype="bandpass",
-                    **bp_options,
-                )
-            )
-            self._emgs = pd.DataFrame(
-                emgs_pro.apply(
-                    signalprocessing.rms_filt,
-                    raw=True,
-                    order=int(
-                        bp_options["fsamp"] * self.emg_processing_options["rms_window"]
-                    ),
-                )
-            )
-        else:
-            self._emgs = pd.DataFrame()
-
-    # *costruttore
     def __init__(
         self,
-        file_path: str,
-        marker_fcut: int | float | np._NumberType = 6,
-        marker_order: int | float | np._NumberType = 4,
-        marker_phase_corrected: bool | np.bool_ = True,
-        force_fcut: int | float | np._NumberType = 50,
-        force_order: int | float | np._NumberType = 4,
-        force_phase_corrected: bool | np.bool_ = True,
-        emg_fcut: (
-            tuple[int | float, int | float]
-            | list[int | float]
-            | np.ndarray[Literal[1], np._NumberType]
-        ) = (30, 400),
-        emg_order: int | float | np._NumberType = 4,
-        emg_phase_corrected: bool | np.bool_ = True,
-        emg_rms_window: int | float | np._NumberType = 0.2,
+        markers_raw: pd.DataFrame,
+        forceplatforms_raw: pd.DataFrame,
+        emgs_raw: pd.DataFrame,
     ):
-        # inizializzo le variabili
-        self._set_file_path(file_path)
-        self._set_marker_processing_options(
-            fcut=marker_fcut,
-            order=marker_order,
-            phase_corrected=marker_phase_corrected,
+        """
+        generate a new StateFrame object
+
+        Parameters
+        ----------
+        markers_raw: pd.DataFrame
+            a dataframe containing raw markers data.
+
+        forceplatforms_raw: pd.DataFrame
+            a raw dataframe containing raw forceplatforms data.
+
+        emgs_raw: pd.DataFrame
+            a raw dataframe containing raw emg data.
+        """
+        super().__init__(
+            markers_raw=markers_raw,
+            forceplatforms_raw=forceplatforms_raw,
+            emgs_raw=emgs_raw,
         )
-        self._set_force_processing_options(
-            fcut=force_fcut,
-            order=force_order,
-            phase_corrected=force_phase_corrected,
+
+        # ensure that the 'fRes' force platform object exists
+        lbls = np.unique(self.forceplatforms.columns.get_level_values(0))
+        if not any([i == "fRes" for i in lbls]):
+            msg = "the provided .tdf file doe not contain the 'fRes' force data"
+            raise ValueError(msg)
+
+    @classmethod
+    def from_tdf_file(cls, file: str):
+        """
+        generate a StaticUprightStance from a .tdf file
+
+        Parameters
+        ----------
+        file : str
+            a valid .tdf file containing (tracked) markers, force platforms and
+            (optionally) EMG data
+
+        Returns
+        -------
+        frame: StaticUprightStance
+            a UprightStaticStance instance of the data contained in the .tdf file.
+        """
+        return super().from_tdf_file(file)
+
+    @classmethod
+    def from_stateframe(cls, obj: StateFrame):
+        """
+        generate a StaticUprightStance from a StateFrame object
+
+        Parameters
+        ----------
+        obj: StateFrame
+            a StateFrame instance
+
+        Returns
+        -------
+        frame: StaticUprightStance
+            a StaticUprightStance instance.
+        """
+        if not isinstance(obj, StateFrame):
+            raise ValueError("obj must be a StateFrame object.")
+        out = cls(
+            markers_raw=obj.markers,
+            forceplatforms_raw=obj.forceplatforms,
+            emgs_raw=obj.emgs,
         )
-        self._set_emg_processing_options(
-            fcut=emg_fcut,
-            order=emg_order,
-            phase_corrected=emg_phase_corrected,
-            rms_window=emg_rms_window,
-        )
-
-        # leggo il file tdf
-        self._tdf = read_tdf(self.file_path)
-
-        # effettuo il data processing
-        self._process_data()
+        out._processed = obj.is_processed()
+        out._marker_processing_options = obj.marker_processing_options
+        out._forceplatform_processing_options = obj.forceplatform_processing_options
+        out._emg_processing_options = obj.emg_processing_options
+        return out
 
 
-class _SJ:
+class SquatJump(StateFrame):
     """
-    Squat jump class is used internally for processing the single squat jump
+    class defining a single SquatJump collected by markers, forceplatforms
+    and (optionally) emg signals.
 
     Parameters
     ----------
+    markers: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more triplets of columns like:
+                | <NAME> | <NAME> | <NAME> |
+                |    X   |   Y    |    Z   |
+                |    m   |   m    |    m   |
+            * the time instant of each sample in seconds as index.
 
+    forceplatforms: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more packs of columns like:
+                | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> |
+                | ORIGIN | ORIGIN | ORIGIN |  FORCE | FORCE  | FORCE  | TORQUE | TORQUE | TORQUE |
+                |    X   |   Y    |    Z   |    X   |   Y    |    Z   |    X   |   Y    |    Z   |
+                |    m   |   m    |    m   |    N   |   N    |    N   |    Nm  |   Nm   |   Nm   |
+            * the time instant of each sample in seconds as index.
+
+    emgs: pd.DataFrame
+        a DataFrame being composed by:
+            * one or more packs of columns like:
+                | <NAME> |
+                |    V   |
+            * the time instant of each sample in seconds as index.
+
+    Attributes
+    ----------
+    markers
+        the kinematic data
+
+    forceplatforms
+        the force data
+
+    emgs
+        the EMG data
+
+    emg_processing_options
+        the parameters to set the filtering of the EMG signal
+
+    forceplatform_processing_options
+        the parameters to set the filtering of the force signal
+
+    marker_processing_options
+        the parameters to set the filtering of the kinematic signals
+
+    concentric_phase
+        a StateFrame representing the concentric phase of the jump
+
+    flight_phase
+        a StateFrame representing the flight phase of the jump
+
+    rate_of_force_development
+        return the rate of force development over the concentric phase of the
+        jump
+
+    Methods
+    -------
+    to_dataframe
+        return the available data as single pandas DataFrame.
+
+    to_stateframe
+        return the available data as StateFrame.
+
+    copy
+        return a copy of the object.
+
+    slice
+        return a subset of the object.
+
+    process_data
+        process internal data to remove/replace missing values and smooth the
+        signals.
+
+    is_processed
+        returns True if the actual object already run the process data method
+
+    to_reference_frame
+        rotate the actual object to a new reference frame defined by
+        the provided origin and axes.
+    """
+
+    # * attributes
+
+    @property
+    def concentric_phase(self):
+        """
+        return a StateFrame representing the concentric phase of the jump
+
+        Procedure
+        ---------
+            1. get the index of the peak vertical velocity of S2 marker
+            2. check for the last zero velocity occuring before the peak.
+            3. look for the last sample with the feet in touch to the ground.
+            4. return a slice of the data containing the subset defined by
+            points 2 and 3.
+
+        Returns
+        -------
+        phase: StateFrame
+            a StateFrame containing the data corresponding to the concentric
+            phase of the jump
+        """
+        # get the vertical velocity in S2
+        s2_y = self.markers.S2.Y.values.astype(float).flatten()
+        s2_t = self.markers.index.to_numpy()
+        s2_v = sp.winter_derivative1(s2_y, s2_t)
+        s2_y = s2_y[1:-1]
+        s2_t = s2_t[1:-1]
+
+        # get the index of the peak velocity
+        max_v = np.argmax(s2_v)
+
+        # look at the zeros in the vertical velocity occurring before max_v
+        zeros_s2 = sp.crossings(s2_v[max_v], 0)[0]
+        if len(zeros_s2) == 0:
+            raise RuntimeError("No zero values found in vertical velocity.")
+
+        # get the time instants corresponding to ground reaction force = zero
+        grf_y = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
+        grf_t = self.forceplatforms.index.to_numpy()
+        zeros_grf = sp.crossings(grf_y, 0)[0]
+        msg = "No zero values found in ground reaction force"
+        if len(zeros_grf) == 0:
+            raise RuntimeError(msg)
+
+        # set the time start as the last zero in the vertical velocity
+        time_start = s2_t[zeros_s2][-1]
+
+        # set the time stop as the time instant occurring immediately before
+        # the first zero in grf occurring after time_start
+        time_stop = grf_t[zeros_grf]
+        time_stop = time_stop[time_stop > time_start]
+        if len(time_stop) == 0:
+            msg += " after the start of the concentric phase."
+            raise RuntimeError(msg)
+        time_stop = grf_t[grf_t < time_stop[0]][-1]
+
+        # return a slice of the available data
+        return self.slice(time_start, time_stop)
+
+    @property
+    def flight_phase(self):
+        """
+        return a StateFrame representing the flight phase of the jump
+
+        Procedure
+        ---------
+            1. get the batches of samples with ground reaction force being zero.
+            2. take the longed batch.
+            3. take the time corresponding to the start and stop of the batch.
+            4. return a slice containing only the data corresponding to the
+            detected start and stop values.
+
+        Returns
+        -------
+        phase: StateFrame
+            a StateFrame containing the data corresponding to the flight
+            phase of the jump
+        """
+
+        # get the indices of the largest interval in the ground reaction force
+        # with zeros
+        grf_y = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
+        grf_t = self.forceplatforms.index.to_numpy()
+        zeros_batches = sp.continuous_batches(grf_y == 0)
+        msg = "No zero values found in ground reaction force"
+        if len(zeros_batches) == 0:
+            raise RuntimeError(msg)
+
+        # take the time corresponding to the start and stop of the batch
+        zeros_batch = zeros_batches[np.argmax([len(i) for i in zeros_batches])]
+        if len(zeros_batch) < 2:
+            raise RuntimeError("no flight phase detected")
+        time_start, time_stop = grf_t[zeros_batch][[0, -1]]
+
+        # return a slice of the available data
+        return self.slice(time_start, time_stop)
+
+    @property
+    def rate_of_force_development(self):
+        """
+        return the rate of force development over the concentric phase of the
+        jump in N/s
+        """
+        # get the vertical force data
+        confp = self.concentric_phase.forceplatforms.fRes.FORCE
+        grf = confp.Y.values.astype(float).flatten()
+        time = confp.index.to_numpy()
+
+        # get the rfd value
+        return float(np.mean(sp.winter_derivative1(grf, time)))
+
+    @property
+    def velocity_at_toeoff(self):
+        """return the vertical velocity at the toeoff in m/s"""
+
+        # get the vertical velocity
+        pos = self.markers.S2.Y.values.astype(float).flatten()
+        time = self.markers.index.to_numpy()
+        vel = sp.winter_derivative1(pos, time)
+
+        # remove the first and last sample from time to be aligned with vel
+        time = time[1:-1]
+
+        # get the velocity at the first time instant in the flight phase
+        loc = np.where(time <= self.flight_phase.markers.index[0])[0][0]
+        return float(vel[loc])
+
+    @property
+    def jump_height(self):
+        """return the jump height in m"""
+
+        # get the vertical position of S2 at the flight phase
+        pos = self.flight_phase.markers.S2.Y.values.astype(float).flatten()
+
+        # get the difference between the first and highest sample
+        maxh = np.max(pos)
+        toeoffh = pos[0]
+        return float(maxh - toeoffh)
+
+    @property
+    def concentric_power(self):
+        """return the mean power in W generated during the concentric phase"""
+        # get the concentric phase grf and vertical velocity
+        con = self.concentric_phase
+        s2y = con.markers.S2.Y.values.astype(float).flatten()
+        s2t = con.markers.index.to_numpy()
+        s2v = sp.winter_derivative1(s2y, s2t)
+        s2t = s2t[1:-1]
+        grf = con.forceplatforms.loc[s2t].fRes.FORCE.Y.values.astype(float).flatten()
+
+        # return the mean power output
+        return float(np.mean(grf * s2v))
+
+    @property
+    def muscle_activation(self):
+        """
+        return the mean muscle activation amplitude during the concentric phase
+        """
+        # get the concentric phase grf and vertical velocity
+        con = self.concentric_phase
+        return con.emgs.mean(axis=0)
+
+    # * methods
+
+    def to_stateframe(self):
+        """return the actual object as StateFrame"""
+        return super().copy()
+
+    def copy(self):
+        """create a copy of the object"""
+        return self.from_stateframe(self)
+
+    # * constructors
+
+    def __init__(
+        self,
+        markers_raw: pd.DataFrame,
+        forceplatforms_raw: pd.DataFrame,
+        emgs_raw: pd.DataFrame,
+    ):
+        """
+        generate a new StateFrame object
+
+        Parameters
+        ----------
+        markers_raw: pd.DataFrame
+            a dataframe containing raw markers data.
+
+        forceplatforms_raw: pd.DataFrame
+            a raw dataframe containing raw forceplatforms data.
+
+        emgs_raw: pd.DataFrame
+            a raw dataframe containing raw emg data.
+        """
+        super().__init__(
+            markers_raw=markers_raw,
+            forceplatforms_raw=forceplatforms_raw,
+            emgs_raw=emgs_raw,
+        )
+
+        # ensure that the 'fRes', 'rFoot' and 'lFoot' force platform objects exist
+        lbls = np.unique(self.forceplatforms.columns.get_level_values(0))
+        required_fp = ["fRes", "lFoot", "rFoot"]
+        for lbl in required_fp:
+            if not any([i == lbl for i in lbls]):
+                msg = f"the data does not contain the required '{lbl}'"
+                msg += " forceplatform object."
+            raise ValueError(msg)
+        self._forceplatforms = self._forceplatforms[required_fp]
+
+        # ensure that the 'S2' marker exists
+        lbls = np.unique(self.markers.columns.get_level_values(0))
+        if not any([i == "S2" for i in lbls]):
+            msg = "the data does not contain the 'S2' marker."
+            raise ValueError(msg)
+        self._markers = self._markers[["S2"]]
+
+    @classmethod
+    def from_tdf_file(cls, file: str):
+        """
+        generate a StaticUprightStance from a .tdf file
+
+        Parameters
+        ----------
+        file : str
+            a valid .tdf file containing (tracked) markers, force platforms and
+            (optionally) EMG data
+
+        Returns
+        -------
+        frame: StaticUprightStance
+            a UprightStaticStance instance of the data contained in the .tdf file.
+        """
+        return super().from_tdf_file(file)
+
+    @classmethod
+    def from_stateframe(cls, obj: StateFrame):
+        """
+        generate a StaticUprightStance from a StateFrame object
+
+        Parameters
+        ----------
+        obj: StateFrame
+            a StateFrame instance
+
+        Returns
+        -------
+        frame: StaticUprightStance
+            a StaticUprightStance instance.
+        """
+        if not isinstance(obj, StateFrame):
+            raise ValueError("obj must be a StateFrame object.")
+        out = cls(
+            markers_raw=obj.markers,
+            forceplatforms_raw=obj.forceplatforms,
+            emgs_raw=obj.emgs,
+        )
+        out._processed = obj.is_processed()
+        out._marker_processing_options = obj.marker_processing_options
+        out._forceplatform_processing_options = obj.forceplatform_processing_options
+        out._emg_processing_options = obj.emg_processing_options
+        return out
+
+
+class SquatJumpTest:
+    """
+    Class Squat_Jump_test is used to analyze the processed file of the single squat jump
+
+    Parameters
+    ----------
 
     """
 
@@ -595,16 +583,6 @@ class _SJ:
 class _CMJ:
     """
     Counter movement jump class is used internally for processing the single counter movement jump
-
-    Parameters
-    ----------
-
-    """
-
-
-class Squat_Jump_test:
-    """
-    Class Squat_Jump_test is used to analyze the processed file of the single squat jump
 
     Parameters
     ----------
