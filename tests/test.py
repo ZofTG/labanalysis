@@ -15,6 +15,7 @@ from tests import *
 
 def test_all():
     """test all functionalities"""
+    test_jumps()
     test_regression()
     test_plotting()
     test_utils()

@@ -5,6 +5,7 @@ analysis
 
 #! IMPORTS
 
+
 from os.path import exists
 from typing import Any, Iterable
 from warnings import warn
@@ -112,7 +113,6 @@ class StateFrame:
         """
         the EMG processing options
         """
-        self._check_processed()
         return self._emg_processing_options
 
     @property
@@ -120,7 +120,6 @@ class StateFrame:
         """
         the force processing options
         """
-        self._check_processed()
         return self._forceplatform_processing_options
 
     @property
@@ -128,7 +127,6 @@ class StateFrame:
         """
         the marker processing options
         """
-        self._check_processed()
         return self._marker_processing_options
 
     @property
@@ -136,7 +134,6 @@ class StateFrame:
         """
         the processed markers coordinates
         """
-        self._check_processed()
         return self._markers
 
     @property
@@ -144,7 +141,6 @@ class StateFrame:
         """
         the processed force platform data
         """
-        self._check_processed()
         return self._forceplatforms
 
     @property
@@ -152,7 +148,6 @@ class StateFrame:
         """
         the processed EMGs signals
         """
-        self._check_processed()
         return self._emgs
 
     # *methods
@@ -242,7 +237,7 @@ class StateFrame:
             time = np.array([])
 
         # resize all data
-        index0, index1 = np.where(valid)[0][0, -1]
+        index0, index1 = np.where(valid)[0][[0, -1]]
         time0, time1 = time[[index0, index1]]
 
         if self._markers.shape[0] > 0:
@@ -438,10 +433,10 @@ class StateFrame:
             forceplatforms_raw=self.forceplatforms,
             emgs_raw=self.emgs,
         )
+        obj._processed = self.is_processed()
         obj._marker_processing_options = self.marker_processing_options
         obj._forceplatform_processing_options = self.forceplatform_processing_options
         obj._emg_processing_options = self.emg_processing_options
-        obj._processed = self.is_processed()
         return obj
 
     def is_processed(self):
@@ -475,15 +470,18 @@ class StateFrame:
         out = self.copy()
 
         # slice the markers
-        markers_mask = from_time <= out._markers.index <= to_time
+        markers_mask = out._markers.index >= from_time
+        markers_mask &= out._markers.index <= to_time
         out._markers = out._markers.loc[markers_mask]
 
         # slice the force platform data
-        fps_mask = from_time <= out._forceplatforms.index <= to_time
+        fps_mask = out._forceplatforms.index >= from_time
+        fps_mask &= out._forceplatforms.index <= to_time
         out._forceplatforms = out._forceplatforms.loc[fps_mask]
 
         # slice the emgs
-        emg_mask = from_time <= out._emgs.index <= to_time
+        emg_mask = out._emgs.index >= from_time
+        emg_mask &= out._emgs.index <= to_time
         out._emgs = out._emgs.loc[emg_mask]
 
         return out
@@ -732,16 +730,16 @@ class StateFrame:
         # check if obj is a dataframe with multiindex columns
         self._validate_frame(obj)
 
-        # check if the columns have just 2 levels
+        # check if the columns have 2 or more levels
         if obj.shape[0] > 0:  # type: ignore
             cols = obj.columns.to_list()  # type: ignore
-            if len(cols[0]) != 2:
-                raise ValueError("obj must have just 2 levels as columns")
+            if len(cols[0]) < 2:
+                raise ValueError("obj must have 2 or more levels as columns")
 
             # check the unit of measurement
-            unit = np.unique([i[1] for i in cols])
-            if len(unit) != 1 and unit[0] != "V":
-                raise ValueError("obj must have just V as unit of measurement")
+            unit = np.unique([i[-1] for i in cols])
+            if len(unit) != 1 and unit[0][-1] != "V":
+                raise ValueError("obj must be measured in multiple of Volts")
 
     def _check_processed(self):
         """private method used to check if processed output are available"""
@@ -773,12 +771,8 @@ class StateFrame:
         side_idx = None if len(side_idx) == 0 else side_idx[0]
 
         # adjust the muscle name
-        if side_idx is not None:
-            muscle = "_".join(splits.pop(side_idx)[:2])
-            side = splits[side_idx]
-        else:
-            muscle = "_".join(splits[:2])
-            side = None
+        side = None if side_idx is None else splits.pop(side_idx)
+        muscle = "_".join(splits[:2])
 
         # return the tuple
         return (muscle, side)
@@ -827,10 +821,10 @@ class StateFrame:
         self._emgs = emgs_raw
 
         # separate the EMG data by side (where possible)
-        emg_unit = np.unique(self._emgs.columns.get_level_values(1))[0]
-        raw_names = self._emgs.columns.get_level_values(0)
-        muscles = [self._get_muscle_name(i) + (emg_unit,) for i in raw_names]
-        self._emgs.columns = pd.MultiIndex.from_tuples(muscles)
+        if len(self._emgs.columns[0]) < 3:
+            raw_names = self._emgs.columns.get_level_values(0)
+            muscles = [self._get_muscle_name(i) + ("V",) for i in raw_names]
+            self._emgs.columns = pd.MultiIndex.from_tuples(muscles)
 
         # set options to None
         self._marker_processing_options = None
