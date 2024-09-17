@@ -1,12 +1,12 @@
-"""jumptests module"""
+"""static tests module containing Static Tests"""
 
 #! IMPORTS
 
 import numpy as np
 import pandas as pd
 
-from .frames import StateFrame
 from . import G
+from .frames import StateFrame
 
 __all__ = ["StaticUprightStance"]
 

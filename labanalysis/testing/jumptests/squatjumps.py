@@ -1,4 +1,4 @@
-"""jumptests module"""
+"""Squat Jump Test module"""
 
 #! IMPORTS
 
