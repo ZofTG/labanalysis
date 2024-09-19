@@ -3,14 +3,15 @@
 #! IMPORTS
 
 
+from abc import abstractmethod
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from ..base import *
 from ... import signalprocessing as sp
-from .. import G, LabTest
 from ..frames import StateFrame
 from ..statictests import StaticUprightStance
 
@@ -666,12 +667,12 @@ class SquatJumpTest(LabTest):
             shared_yaxes=False,
             horizontal_spacing=None,
             vertical_spacing=None,
-            subplot_titles=["JUMP HEIGHT", "POWER", "SYMMETRIES"],
+            subplot_titles=["SYMMETRIES", "JUMP HEIGHT", "POWER"],
             row_titles=None,
             column_titles=None,
             x_title=None,
             y_title=None,
-            specs=[[{}, {}], [{"colspan": 2}, None]],
+            specs=[[{"colspan": 2}, None], [{}, {}]],
         )
 
         # get the symmetry data
@@ -679,8 +680,10 @@ class SquatJumpTest(LabTest):
         cols = raw.columns.get_level_values(0)
         idx = [np.where(i == cols)[0][0] for i in sym_objs]
         df_sym = []
+        base = avg[sym_objs].values.astype(float)
+        base = base - std[sym_objs].values.astype(float)
+        base = min(avg[sym_objs].min(), np.min(base)) * 0.9
         for name in sym_objs[np.argsort(idx)]:
-            base = avg[name].min() * 0.9
             for side in ["left", "right"]:
                 line = {
                     "SIDE": side.upper(),
@@ -706,33 +709,38 @@ class SquatJumpTest(LabTest):
         )
         for trace in fig0.data:
             fig.add_trace(
-                row=2,
+                row=1,
                 col=1,
                 trace=trace,
             )
-        fig.update_yaxes(row=2, col=1, title="%")
+        fig.update_yaxes(row=1, col=1, title="%")
 
         # plot the jump height
         for trace in self._get_bar_traces(raw["jump height"]):
             fig.add_trace(
-                row=1,
+                row=2,
                 col=1,
                 trace=trace,
             )
-        fig.update_yaxes(row=1, col=1, title="cm")
+        fig.update_yaxes(row=2, col=1, title="cm")
 
         # plot the concentric power
         for trace in self._get_bar_traces(raw["concentric power"]):
             fig.add_trace(
-                row=1,
+                row=2,
                 col=2,
                 trace=trace,
             )
-        fig.update_yaxes(row=1, col=2, title="W")
+        fig.update_yaxes(row=2, col=2, title="W")
 
         # update the layout and return
         fig.update_traces(error_y_color="rgba(0, 0, 0, 0.3)")
-        fig.update_layout(legend_title="SIDE", template="simple_white")
+        fig.update_layout(
+            legend_title="SIDE",
+            template="simple_white",
+            height=600,
+            width=800,
+        )
 
         return go.FigureWidget(fig)
 
@@ -807,7 +815,7 @@ class SquatJumpTest(LabTest):
             a tuple containing the traces.
         """
         vals = obj.values.astype(float).flatten()
-        base = np.min(vals) * 0.9
+        base = min(np.min(vals) * 0.9, np.mean(vals) - np.std(vals))
         df = {
             'BASE': np.tile(base, len(vals)),
             'VALUE': vals - base,

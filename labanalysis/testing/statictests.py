@@ -5,11 +5,14 @@
 import numpy as np
 import pandas as pd
 
-from . import G
 from .frames import StateFrame
 
 __all__ = ["StaticUprightStance"]
 
+
+#! CONSTANTS
+
+G = 9.80665  # acceleration of gravity in m/s^2
 
 #! CLASSES
 
