@@ -1,3 +1,6 @@
 """jump tests module"""
 
-from .squatjumps import *
+#! IMPORTS
+
+from .counter_movement_jump import *
+from .squat_jump import *

@@ -157,7 +157,7 @@ class StateFrame:
         ignore_index: bool = True,
         inplace: bool = True,
         markers_fcut: int | float | None = 6,
-        forces_fcut: int | float | None = 50,
+        forces_fcut: int | float | None = 100,
         emgs_fband: tuple[int | float, int | float] | None = (30, 400),
         emgs_rms_win: int | float | None = 0.2,
     ):
@@ -178,7 +178,7 @@ class StateFrame:
             cut frequency of the lowpass, 4th order, phase-corrected,
             Butterworth filter (in Hz) used to smooth the provided coordinates.
 
-        forces_fcut: int | float | None = 50
+        forces_fcut: int | float | None = 100
             cut frequency of the lowpass, 4th order, phase-corrected,
             Butterworth filter (in Hz) used to smooth the provided force and
             torque data.
