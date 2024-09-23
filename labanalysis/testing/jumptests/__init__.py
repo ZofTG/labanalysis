@@ -4,3 +4,4 @@
 
 from .counter_movement_jump import *
 from .squat_jump import *
+from .side_jump import *

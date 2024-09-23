@@ -3,26 +3,24 @@
 #! IMPORTS
 
 
-from typing import Iterable
-
+from typing import Iterable, Literal
 import numpy as np
 import pandas as pd
 
-from ... import signalprocessing as sp
 from ..frames import StateFrame
 from ..statictests import StaticUprightStance
-from .squat_jump import SquatJump, SquatJumpTest
+from .counter_movement_jump import CounterMovementJump, CounterMovementJumpTest
 
-__all__ = ["CounterMovementJump", "CounterMovementJumpTest"]
+__all__ = ["SideJump", "SideJumpTest"]
 
 
 #! CLASSES
 
 
-class CounterMovementJump(SquatJump):
+class SideJump(CounterMovementJump):
     """
-    class defining a single CounterMovementJump collected by markers,
-    forceplatforms and (optionally) emg signals.
+    class defining a single side jump collected by markers, forceplatforms
+    and (optionally) emg signals.
 
     Parameters
     ----------
@@ -96,6 +94,9 @@ class CounterMovementJump(SquatJump):
     jump_height
         return the height of the jump in cm
 
+    side
+        return the side of the jump
+
     Methods
     -------
     to_dataframe
@@ -125,128 +126,22 @@ class CounterMovementJump(SquatJump):
         resize the available data to the relevant phases of the jump.
     """
 
+    # * class variables
+
+    _side: Literal["Right", "Left"]
+
     # * attributes
 
     @property
-    def eccentric_phase(self):
-        """
-        return a StateFrame denoting the eccentric phase of the jump
-
-        Returns
-        -------
-        phase: StateFrame
-            a StateFrame containing the data corresponding to the concentric
-            phase of the jump
-
-        Procedure
-        ---------
-            1. define 'time_end' as the time instant corresponding to the start
-            of the concentric phase. Please looka the 'concentric_phase'
-            documentation to have a detailed description of the procedure used
-            to extract this phase.
-            2. look at the last positive speed value in the vertical S2 signal
-            occurring before 'time_end'.
-            3. define 'time_end' as the last peak in the grf occurring before
-            the time defined in 2.
-        """
-        # get the time instant corresponding to the start of the concentric
-        # phase
-        t_end = self.to_dataframe().index.to_numpy()
-        t_end = t_end[t_end < self.concentric_phase.to_dataframe().index[0]]
-        t_end = float(round(t_end[-1], 3))
-
-        # get the vertical S2 velocity
-        s2y = self.markers.S2.Y.values.astype(float).flatten()
-        s2t = self.markers.index.to_numpy()
-        s2v = sp.winter_derivative1(s2y, s2t)
-        s2y = s2y[1:-1]
-        s2t = s2t[1:-1]
-
-        # look at the last positive vertical speed value occuring before t_end
-        batches = sp.continuous_batches(s2v[s2t < t_end] <= 0)
-        if len(batches) == 0:
-            raise RuntimeError("No eccentric phase has been found.")
-        s2y_0 = float(round(s2t[batches[-1][0]], 3))  # type: ignore
-
-        # take the last peak in vertical grf occurring before s2y_0
-        grfy = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
-        grft = self.forceplatforms.index.to_numpy()
-        idx = np.where(grft < s2y_0)[0]
-        grf_pks = sp.find_peaks(grfy[idx])
-        if len(grf_pks) == 0:
-            t_start = float(round(grft[0], 3))
-        else:
-            t_start = float(round(grft[grf_pks[-1]], 3))  # type: ignore
-
-        # get the time corresponding phase
-        return self.slice(t_start, t_end)
+    def side(self):
+        """return the side of the jump"""
+        return self._side
 
     # * methods
 
     def copy(self):
         """create a copy of the object"""
-        return super().from_stateframe(self)
-
-    def resize(
-        self,
-        extra_time_window: float | int = 0.2,
-        inplace: bool = True,
-    ):
-        """
-        resize the available data to the relevant phases of the jump.
-
-        This function removes the data at the beginning and at the end of the
-        jump leaving just the selected 'extra_time_window' at both sides.
-        The jump is assumed to start at the beginning of the 'eccentric_phase'
-        and to end when the 'loading_response_phase' is concluded.
-
-        Parameters
-        ----------
-        extra_time_window : float | int (default = 0.2)
-            the extra time allowed at both sides of the available data that is
-            retained from resizing.
-
-        inplace: bool (default = True)
-            if True, the function resizes the current jump instance. Otherwise
-            it returns a resized copy.
-
-        Returns
-        -------
-        if 'inplace=True', it returns nothing. Otherwise a new instance of
-        SquatJump is returned.
-        """
-        # check the input data
-        if not isinstance(extra_time_window, (int, float)):
-            raise ValueError("'extra_time_window' has to be an int or float.")
-        if not isinstance(inplace, bool):
-            raise ValueError("'inplace' has to be a boolean.")
-
-        # set the start and end of the test
-        t_start = self.eccentric_phase.to_dataframe().index.to_numpy()[0]
-        t_start = max(t_start - extra_time_window, 0)
-        t_end = self.loading_response_phase.to_dataframe().index.to_numpy()[-1]
-        t_last = self.to_dataframe().index.to_numpy()[-1]
-        t_end = min(t_end + extra_time_window, t_last)
-
-        # handle the inplace option
-        if not inplace:
-            return self.from_stateframe(self.slice(t_start, t_end))
-
-        # markers
-        mrk_idx = self.markers.index.to_numpy()
-        mrk_loc = np.where((mrk_idx >= t_start) & (mrk_idx <= t_end))[0]
-        self._markers = self._markers.iloc[mrk_loc]
-
-        # forceplatforms
-        fps_idx = self.forceplatforms.index.to_numpy()
-        fps_loc = np.where((fps_idx >= t_start) & (fps_idx <= t_end))[0]
-        self._forceplatforms = self._forceplatforms.iloc[fps_loc]
-
-        # emgs
-        if self.emgs.shape[0] > 0:
-            emg_idx = self.emgs.index.to_numpy()
-            emg_loc = np.where((emg_idx >= t_start) & (emg_idx <= t_end))[0]
-            self._emgs = self._emgs.iloc[emg_loc]
+        return self.from_stateframe(self, self.side)
 
     # * constructors
 
@@ -255,6 +150,7 @@ class CounterMovementJump(SquatJump):
         markers_raw: pd.DataFrame,
         forceplatforms_raw: pd.DataFrame,
         emgs_raw: pd.DataFrame,
+        side: Literal["Left", "Right"],
         process_data: bool = True,
         ignore_index: bool = True,
         markers_fcut: int | float | None = 6,
@@ -263,7 +159,7 @@ class CounterMovementJump(SquatJump):
         emgs_rms_win: int | float | None = 0.2,
     ):
         """
-        generate an instance of a Squat Jump object
+        generate an instance of a Side Jump object
 
         Parameters
         ----------
@@ -275,6 +171,9 @@ class CounterMovementJump(SquatJump):
 
         emgs_raw: pd.DataFrame
             a raw dataframe containing raw emg data.
+
+        side: Literal['Left', 'Right']
+            the side of the jump.
 
         process_data: bool = True
             if True, process the data according to the options provided below
@@ -345,11 +244,15 @@ class CounterMovementJump(SquatJump):
             emgs_fband=emgs_fband,
             emgs_rms_win=emgs_rms_win,
         )
+        if not isinstance(side, (Literal, str)):
+            raise ValueError("'side' must be 'Left' or 'Right'.")
+        self._side = side
 
     @classmethod
     def from_tdf_file(
         cls,
         file: str,
+        side: Literal["Left", "Right"],
         process_data: bool = True,
         ignore_index: bool = True,
         markers_fcut: int | float | None = 6,
@@ -358,7 +261,7 @@ class CounterMovementJump(SquatJump):
         emgs_rms_win: int | float | None = 0.2,
     ):
         """
-        generate a CounterMovementJump instance from a .tdf file
+        generate a SideJump from a .tdf file
 
         Parameters
         ----------
@@ -366,6 +269,8 @@ class CounterMovementJump(SquatJump):
             a valid .tdf file containing (tracked) markers, force platforms and
             (optionally) EMG data
 
+        side: Literal['Left', 'Right']
+            the side of the jump
 
         process_data: bool = True
             if True, process the data according to the options provided below
@@ -397,8 +302,8 @@ class CounterMovementJump(SquatJump):
 
         Returns
         -------
-        frame: CounterMovementJump
-            a CounterMovement instance of the data contained in the .tdf file.
+        frame: SideJump
+            a SideJump instance of the data contained in the .tdf file.
 
         Processing procedure
         --------------------
@@ -430,54 +335,83 @@ class CounterMovementJump(SquatJump):
             1. if 'ignore_index=True' then the time indices of all components is
             adjusted to begin with zero.
         """
-        return super().from_tdf_file(
-            file=file,
-            process_data=process_data,
-            ignore_index=ignore_index,
-            markers_fcut=markers_fcut,
-            forces_fcut=forces_fcut,
-            emgs_fband=emgs_fband,
-            emgs_rms_win=emgs_rms_win,
-        )
+        obj = StateFrame.from_tdf_file(file=file)
+        if not isinstance(process_data, bool):
+            raise ValueError("'process_data' must be a boolean")
+        if process_data:
+            obj.process_data(
+                inplace=True,
+                ignore_index=ignore_index,
+                markers_fcut=markers_fcut,
+                forces_fcut=forces_fcut,
+                emgs_fband=emgs_fband,
+                emgs_rms_win=emgs_rms_win,
+            )
+        return cls.from_stateframe(obj, side)
 
     @classmethod
-    def from_stateframe(cls, obj: StateFrame):
+    def from_stateframe(cls, obj: StateFrame, side: Literal["Left", "Right"]):
         """
-        generate a CounterMovementJump instance from a StateFrame object
+        generate a CounterMovementJump from a StateFrame object
 
         Parameters
         ----------
         obj: StateFrame
             a StateFrame instance
 
+        side: Literal['Left', 'Right']
+            the test side
+
         Returns
         -------
-        frame: CounterMovementJump
-            a CounterMovementJump instance.
+        an instance of the jump.
         """
-        return super().from_stateframe(obj)
+        # check the input
+        if not isinstance(obj, StateFrame):
+            raise ValueError("obj must be a StateFrame object.")
+
+        # create the object instance
+        out = cls(
+            markers_raw=obj.markers,
+            forceplatforms_raw=obj.forceplatforms,
+            emgs_raw=obj.emgs,
+            side=side,
+            process_data=False,
+        )
+        out._processed = obj.is_processed()
+        out._marker_processing_options = obj.marker_processing_options
+        out._forceplatform_processing_options = obj.forceplatform_processing_options
+        out._emg_processing_options = obj.emg_processing_options
+
+        return out
 
 
-class CounterMovementJumpTest(SquatJumpTest):
+class SideJumpTest(CounterMovementJumpTest):
     """
     Class handling the data processing and analysis of the collected data about
-    a counter movement jump test.
+    a side jump test.
 
     Parameters
     ----------
     baseline: StaticUprightStance
         a StaticUprightStance instance defining the baseline acquisition.
 
-    *jumps: CounterMovementJump
-        a variable number of jump objects
+    left_jumps: Iterable[SideJump]
+        a variable number of SideJump objects
+
+    right_jumps: Iterable[SideJump]
+        a variable number of SideJump objects
 
     Attributes
     ----------
     baseline
         the StaticUprightStance instance of the test
 
-    jumps
-        the list of available jumps.
+    left_jumps
+        the list of available (left) SideJump objects.
+
+    right_jumps
+        the list of available (right) SideJump objects.
 
     summary_table
         A table with summary statistics about the test. The table
@@ -494,7 +428,8 @@ class CounterMovementJumpTest(SquatJumpTest):
 
     # * class variables
 
-    _jumps: list[CounterMovementJump]
+    _left_jumps: list[SideJump]
+    _right_jumps: list[SideJump]
 
     # * methods
 
@@ -504,12 +439,15 @@ class CounterMovementJumpTest(SquatJumpTest):
             raise ValueError("baseline must be a StaticUprightStance instance.")
 
         # check for the jumps
-        if not isinstance(self._jumps, Iterable):
-            msg = "'jumps' must be a list of CounterMovementJump objects."
-            raise ValueError(msg)
-        for i, jump in enumerate(self._jumps):
-            if not isinstance(jump, CounterMovementJump):
-                msg = f"jump {i + 1} is not a CounterMovementJump instance."
+        if not isinstance(self._left_jumps, Iterable):
+            raise ValueError("'left_jumps' must be a list of SideJump objects.")
+        self._left_jumps = list(self._left_jumps)
+        if not isinstance(self._right_jumps, Iterable):
+            raise ValueError("'right_jumps' must be a list of SideJump objects.")
+        self._right_jumps = list(self._right_jumps)
+        for jump in self._left_jumps + self._right_jumps:
+            if not isinstance(jump, SideJump):
+                msg = f"All jumps must be SideJump instances."
                 raise ValueError(msg)
 
     # * constructors
@@ -517,6 +455,10 @@ class CounterMovementJumpTest(SquatJumpTest):
     def __init__(
         self,
         baseline: StaticUprightStance,
-        jumps: list[CounterMovementJump],
+        left_jumps: list[SideJump],
+        right_jumps: list[SideJump],
     ):
-        super().__init__(baseline, jumps)  # type: ignore
+        self._baseline = baseline
+        self._left_jumps = left_jumps
+        self._right_jumps = right_jumps
+        self._check_valid_inputs()

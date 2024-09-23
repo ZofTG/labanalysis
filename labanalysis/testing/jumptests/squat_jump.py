@@ -3,6 +3,7 @@
 #! IMPORTS
 
 
+from typing import Iterable
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -966,6 +967,9 @@ class SquatJumpTest(LabTest):
             raise ValueError("baseline must be a StaticUprightStance instance.")
 
         # check for the jumps
+        if not isinstance(self._jumps, Iterable):
+            msg = "'jumps' must be a list of SquatJump objects."
+            raise ValueError(msg)
         for i, jump in enumerate(self._jumps):
             if not isinstance(jump, SquatJump):
                 raise ValueError(f"jump {i + 1} is not a SquatJump instance.")
@@ -975,9 +979,9 @@ class SquatJumpTest(LabTest):
     def __init__(
         self,
         baseline: StaticUprightStance,
-        *jumps: SquatJump,
+        jumps: list[SquatJump],
     ):
         super().__init__()
         self._baseline = baseline
-        self._jumps = list(jumps)
+        self._jumps = jumps
         self._check_valid_inputs()
