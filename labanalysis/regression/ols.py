@@ -280,7 +280,7 @@ class PolynomialRegression(LinearRegression):
         coefs = np.concatenate(coefs, axis=1).T
         fitted._betas = pd.DataFrame(
             data=coefs,
-            index=[f"beta{i}" for i in np.arange(self.degree + 1)],
+            index=[f"beta{i}" for i in np.arange(coefs.shape[0])],
             columns=self.get_feature_names_out(),
         )
 

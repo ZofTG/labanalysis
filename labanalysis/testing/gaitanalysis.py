@@ -11,7 +11,7 @@ import pandas as pd
 
 from scipy.signal import detrend
 
-from ..signalprocessing import continuous_batches, fillna
+from ..signalprocessing import continuous_batches, fillna, butterworth_filt
 from labio import read_tdf
 
 
@@ -386,7 +386,7 @@ class WalkingStep(_Step):
         F, T = self.grf_kgf
         G = 9.80665
         A = (F * G - user_weight_kg * G) / user_weight_kg
-        D = detrend(np.trapz(np.trapz(A, T), T))
+        D = detrend(np.trapezoid(np.trapezoid(A, T), T).astype(float))
 
         # get the range
         return np.max(D) - np.min(D)
@@ -659,6 +659,12 @@ class GaitTest:
     _force_threshold: int | float
     _source_file: str | None
     _steps: list[RunningStep | WalkingStep]
+    _vertical_axis: Literal["X", "Y", "Z"]
+
+    @property
+    def vertical_axis(self):
+        """return the vertical axis name"""
+        return self._vertical_axis
 
     @property
     def raw_coordinates(self):
@@ -746,6 +752,33 @@ class GaitTest:
 
         return strides
 
+    # * methods
+
+    def strides_summary(self):
+        """return a summary of the collected strides"""
+        out = []
+        for i, stride in enumerate(self.strides):
+            line = pd.DataFrame(pd.Series(stride.as_dict())).T
+            line.insert(0, ("Stride", "#"), [i + 1])
+            out += [line]
+        out = pd.concat(out, ignore_index=True)
+        out.sort_index(axis=1, inplace=True)
+        return out
+
+    def steps_summary(self):
+        """return a summary of the collected steps"""
+        out = []
+        for i, step in enumerate(self.steps):
+            line = pd.DataFrame(pd.Series(step.as_dict())).T
+            line.insert(0, "step_#", [i + 1])
+            out += [line]
+        out = pd.concat(out, ignore_index=True)
+        steps = out["step_#"].values.astype(int).flatten()
+        out.drop("step_#", axis=1, inplace=True)
+        out.sort_index(axis=1, inplace=True)
+        out.insert(0, "step_#", steps)
+        return out
+
     def _valid_dataframe(
         self,
         obj: object,
@@ -770,7 +803,8 @@ class GaitTest:
             return False
         if obj.shape[1] != 3:
             return False
-        if not all(i in obj.columns.tolist() for i in ["X", "Y", "Z"]):
+        labels = [i[0] for i in obj.columns.tolist()]
+        if not all(i in labels for i in ["X", "Y", "Z"]):
             return False
         return True
 
@@ -802,12 +836,26 @@ class GaitTest:
             the data frame after the removal of missing values and the
             application of a lowpass filter.
         """
+
+        # remove missing values at the beginning and at the end of the frame
+        all_nans_mask = frame.isna().all(axis=1).values.astype(bool).flatten()
+        batches = continuous_batches(all_nans_mask)
+        if len(batches) > 0 and batches[0][0] == 0:
+            idx_start = batches[0][-1] + 1
+        else:
+            idx_start = 0
+        if len(batches) > 0 and batches[-1][-1] == len(all_nans_mask) - 1:
+            idx_stop = batches[-1][0]
+        else:
+            idx_stop = len(all_nans_mask)
+        idx = np.arange(idx_start, idx_stop)
+
         # fill missing values
-        out = pd.DataFrame(fillna(frame, filling_value, 6))
+        out = pd.DataFrame(fillna(frame.iloc[idx, :], filling_value, 6))
 
         # smooth all marker coordinates
-        return out.map(
-            laban.butterworth_filt,  # type: ignore
+        return out.apply(
+            butterworth_filt,  # type: ignore
             fcut=cutoff_freq,
             fsamp=1 / np.mean(np.diff(frame.index.to_numpy())),
             order=6,
@@ -815,6 +863,107 @@ class GaitTest:
             phase_corrected=True,
             raw=True,
         )
+
+    def _find_steps_from_grf(self):
+        """find steps via grf coordinates"""
+        if self.grf is not None and self.cop is not None:
+            # TODO
+            pass
+
+    def _find_steps_from_markers(self):
+        """find steps via markers coordinates"""
+        if self.coordinates is not None:
+
+            # get the vertical coordinates of all relevant markers
+            vcoords = self.coordinates.columns
+            vcoords = [i for i in vcoords if i[1] == self.vertical_axis]
+            vcoords = self.coordinates[vcoords].copy()
+            vcoords.columns = pd.Index([i[0] for i in vcoords.columns])
+            vlc = vcoords[[i for i in vcoords.columns if i[0] == "l"]]
+            vlc.columns = pd.Index([i[1:] for i in vlc.columns])
+            vrc = vcoords[[i for i in vcoords.columns if i[0] == "r"]]
+            vrc.columns = pd.Index([i[1:] for i in vrc.columns])
+
+            # get the instants where heels and toes are on ground
+            vlc -= vlc.min(axis=0)
+            vrc -= vrc.min(axis=0)
+
+            # get the mean values (they are used for mid-stance detection)
+            mlc = vlc.mean(axis=1)
+            mrc = vrc.mean(axis=1)
+
+            # get the batches of time with part of the feet on ground
+            glc = vlc < self._height_threshold
+            grc = vrc < self._height_threshold
+            blc = continuous_batches(glc.any(axis=1).values.astype(bool))
+            brc = continuous_batches(grc.any(axis=1).values.astype(bool))
+
+            # exclude those batches that start at the beginning of the data
+            # acquisition or are continuning at the end of the data acquisition
+            if len(blc) > 0:
+                if blc[0][0] == 0:
+                    blc = blc[1:]
+                if blc[-1][-1] >= len(vlc) - 1:
+                    blc = blc[:-1]
+            if len(brc) > 0:
+                if brc[0][0] == 0:
+                    brc = brc[1:]
+                if brc[-1][-1] >= len(vrc) - 1:
+                    brc = brc[:-1]
+
+            # get the events
+            time = self.coordinates.index.to_numpy()
+            evts_map = {
+                "FS LEFT": [time[i[0]] for i in blc],
+                "FS RIGHT": [time[i[0]] for i in brc],
+                "MS LEFT": [time[np.argmin(mlc.iloc[i]) + i[0]] for i in blc],
+                "MS RIGHT": [time[np.argmin(mrc.iloc[i]) + i[0]] for i in brc],
+                "TO LEFT": [time[i[-1]] for i in blc],
+                "TO RIGHT": [time[i[-1]] for i in brc],
+            }
+            evts_map = {i: np.array(j) for i, j in evts_map.items()}
+            self._extract_steps(evts_map)
+
+    def _extract_steps(
+        self,
+        evts: dict[str, np.ndarray],
+    ):
+        """extract steps from events map"""
+        evts_val = np.concatenate(list(evts.values()))
+        evts_lbl = [np.tile(i, len(v)) for i, v in evts.items()]
+        evts_lbl = np.concatenate(evts_lbl)
+        evts_idx = np.argsort(evts_val)
+        evts_val = evts_val[evts_idx]
+        evts_side = np.array([i.split(" ")[1] for i in evts_lbl[evts_idx]])
+        evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
+
+        # get the steps
+        run_seq = ["FS", "MS", "TO", "LD"]
+        walk_seq = ["FS", "TO", "MS", "LD"]
+        for n in np.arange(0, len(evts_lbl) - 4, 3):
+            idx = np.arange(4) + n
+            seq = evts_lbl[idx].copy()
+            seq[-1] = "LD"
+            sides = evts_side[idx].copy()
+            vals = evts_val[idx].copy()
+            s0 = sides[0]
+            if (
+                all([i == v for i, v in zip(seq, run_seq)])
+                & all(i == s0 for i in sides[:-1])
+                & (sides[-1] != s0)
+            ):  # running
+                # TODO add COP and GRF parameters
+                self._steps += [RunningStep(*vals, side=s0.upper())]
+            elif (
+                all([i == v for i, v in zip(seq, walk_seq)])
+                & all(i == s0 for i in sides[2:-1])
+                & (sides[1] != s0)
+                & (sides[-1] != s0)
+            ):  # walking
+                # TODO add COP and GRF parameters
+                self._steps += [WalkingStep(*vals, side=s0.upper())]
+
+    # * constructors
 
     def __init__(
         self,
@@ -829,6 +978,7 @@ class GaitTest:
         preprocess: bool = True,
         height_thresh: float | int = 0.02,
         force_thresh: float | int = 30,
+        vertical_axis: Literal["X", "Y", "Z"] = "Y",
     ):
 
         # check preprocess
@@ -927,111 +1077,19 @@ class GaitTest:
             self._raw_coordinates = None
             self._coordinates = None
 
+        # check the axis
+        if not isinstance(vertical_axis, (str, Literal)):
+            raise ValueError('vertical_axies must be any between "X", "Y", "Z".')
+        self._vertical_axis = vertical_axis
+
         # find steps and strides
         self._steps: list[RunningStep | WalkingStep] = []
         self._find_steps_from_markers()
         if len(self._steps) == 0:
             self._find_steps_from_grf()
 
-    def _find_steps_from_grf(self):
-        """find steps via grf coordinates"""
-        if self.grf is not None and self.cop is not None:
-            # TODO
-            pass
-
-    def _find_steps_from_markers(self):
-        """find steps via markers coordinates"""
-        if self.coordinates is not None:
-
-            # get the vertical coordinates of all relevant markers
-            vcoords = self.coordinates[
-                [i for i in self.coordinates.columns if i[1] == "Z"]
-            ].copy()
-            vcoords.columns = pd.Index([i[0] for i in vcoords.columns])
-            vlc = vcoords[[i for i in vcoords.columns if i[0] == "l"]]
-            vlc.columns = pd.Index([i[1:] for i in vlc.columns])
-            vrc = vcoords[[i for i in vcoords.columns if i[0] == "r"]]
-            vrc.columns = pd.Index([i[1:] for i in vrc.columns])
-
-            # get the instants where heels and toes are on ground
-            vlc -= vlc.min(axis=0)
-            vrc -= vrc.min(axis=0)
-
-            # get the mean values (they are used for mid-stance detection)
-            mlc = vlc.mean(axis=1)
-            mrc = vrc.mean(axis=1)
-
-            # get the batches of time with part of the feet on ground
-            glc = vlc < self._height_threshold
-            grc = vrc < self._height_threshold
-            blc = continuous_batches(glc.any(axis=1).values.astype(bool))
-            brc = continuous_batches(grc.any(axis=1).values.astype(bool))
-
-            # exclude those batches that start at the beginning of the data
-            # acquisition or are continuning at the end of the data acquisition
-            if len(blc) > 0:
-                if blc[0][0] == 0:
-                    blc = blc[1:]
-                if blc[-1][-1] >= len(vlc) - 1:
-                    blc = blc[:-1]
-            if len(brc) > 0:
-                if brc[0][0] == 0:
-                    brc = brc[1:]
-                if brc[-1][-1] >= len(vrc) - 1:
-                    brc = brc[:-1]
-
-            # get the events
-            time = self.coordinates.index.to_numpy()
-            evts_map = {
-                "FS LEFT": [time[i[0]] for i in blc],
-                "FS RIGHT": [time[i[0]] for i in brc],
-                "MS LEFT": [time[np.argmin(mlc.iloc[i]) + i[0]] for i in blc],
-                "MS RIGHT": [time[np.argmin(mrc.iloc[i]) + i[0]] for i in brc],
-                "TO LEFT": [time[i[-1]] for i in blc],
-                "TO RIGHT": [time[i[-1]] for i in brc],
-            }
-            evts_map = {i: np.array(j) for i, j in evts_map.items()}
-            self._extract_steps(evts_map)
-
-    def _extract_steps(
-        self,
-        evts: dict[str, np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]]],
-    ):
-        """extract steps from events map"""
-        evts_val = np.concatenate(list(evts.values()))
-        evts_lbl = [np.tile(i, len(v)) for i, v in evts.items()]
-        evts_lbl = np.concatenate(evts_lbl)
-        evts_idx = np.argsort(evts_val)
-        evts_val = evts_val[evts_idx]
-        evts_side = np.array([i.split(" ")[1] for i in evts_lbl[evts_idx]])
-        evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
-
-        # get the steps
-        run_seq = ["FS", "MS", "TO", "LD"]
-        walk_seq = ["FS", "TO", "MS", "LD"]
-        for n in np.arange(0, len(evts_lbl) - 4, 3):
-            idx = np.arange(4) + n
-            seq = evts_lbl[idx].copy()
-            seq[-1] = "LD"
-            sides = evts_side[idx].copy()
-            vals = evts_val[idx].copy()
-            s0 = sides[0]
-            if (
-                all([i == v for i, v in zip(seq, run_seq)])
-                & all(i == s0 for i in sides[:-1])
-                & (sides[-1] != s0)
-            ):  # running
-                self._steps += [RunningStep(*vals, side=s0.upper())]
-            elif (
-                all([i == v for i, v in zip(seq, walk_seq)])
-                & all(i == s0 for i in sides[2:-1])
-                & (sides[1] != s0)
-                & (sides[-1] != s0)
-            ):  # walking
-                self._steps += [WalkingStep(*vals, side=s0.upper())]
-
     @classmethod
-    def from_file(
+    def from_tdf_file(
         cls,
         file: str,
         grf_label: str | None = None,
@@ -1110,7 +1168,8 @@ class GaitTest:
                 msg += "tracked data."
                 raise ValueError(msg)
             for key, value in markers.items():
-                out[key] = mks[key] if value is not None else value
+                if value is not None:
+                    out[key] = mks[value]
 
         # check the grf
         if grf_label is not None:
@@ -1140,25 +1199,3 @@ class GaitTest:
         )
         obj._source_file = file
         return obj
-
-    def strides_summary(self):
-        """return a summary of the collected strides"""
-        out = []
-        for i, stride in enumerate(self.strides):
-            line = pd.DataFrame(pd.Series(stride.as_dict())).T
-            line.insert(0, ("Stride", "#"), [i + 1])
-            out += [line]
-        out = pd.concat(out, ignore_index=True)
-        out.sort_index(axis=1, inplace=True)
-        return out
-
-    def steps_summary(self):
-        """return a summary of the collected steps"""
-        out = []
-        for i, step in enumerate(self.steps):
-            line = pd.DataFrame(pd.Series(step.as_dict())).T
-            line.insert(0, ("Step", "#"), [i + 1])
-            out += [line]
-        out = pd.concat(out, ignore_index=True)
-        out.sort_index(axis=1, inplace=True)
-        return out

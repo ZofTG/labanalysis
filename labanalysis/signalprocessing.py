@@ -1507,7 +1507,7 @@ def fillna(
             if len(rows) > 0:
                 cols = np.delete(np.arange(splined.shape[1]), i)
                 cols = cols[np.argsort(cmat[i][cols])[::-1][:n_regressors]]
-                lrm = PolynomialRegression().fit(xmat[:, cols], xmat[:, i])
+                lrm = PolynomialRegression(degree=1).fit(xmat[:, cols], xmat[:, i])
                 vec = np.atleast_2d(lrm.predict(splined[rows][:, cols])).T
                 out[rows, i] = vec
 
