@@ -39,3 +39,8 @@ class LabTest:
     @abstractmethod
     def summary_table(self):
         return NotImplementedError
+
+    @property
+    @abstractmethod
+    def results_table(self):
+        return NotImplementedError

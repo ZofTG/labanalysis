@@ -4,6 +4,7 @@
 
 
 from typing import Iterable
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -73,6 +74,9 @@ class SquatJump(StateFrame):
     marker_processing_options
         the parameters to set the filtering of the kinematic signals
 
+    grf
+        return the vertical ground reaction force
+
     concentric_phase
         a StateFrame representing the concentric phase of the jump
 
@@ -81,20 +85,6 @@ class SquatJump(StateFrame):
 
     loading_response_phase
         a StateFrame representing the loading response phase of the jump
-
-    rate_of_force_development
-        return the rate of force development over the concentric phase of the
-        jump
-
-    velocity_at_toeoff
-        return the vertical velocity at the toeoff in m/sù
-
-    concentric_power
-        return the mean power in W generated during the concentric phase
-
-    jump_height
-        return the height of the jump in cm
-
 
     Methods
     -------
@@ -126,6 +116,14 @@ class SquatJump(StateFrame):
     """
 
     # * attributes
+
+    @property
+    def grf(self):
+        """return the grf"""
+        grfy = self.forceplatforms.lFoot.FORCE.Y.values.astype(float).flatten()
+        grfy += self.forceplatforms.rFoot.FORCE.Y.values.astype(float).flatten()
+        grf = pd.Series(grfy, index=self.forceplatforms.index.to_numpy())
+        return grf.astype(float)
 
     @property
     def concentric_phase(self):
@@ -169,8 +167,8 @@ class SquatJump(StateFrame):
         # take the last local minima in the vertical grf occurring before
         # start_s2
         start_s2 = float(round(s2t[batch[0]], 3))  # type: ignore
-        grfy = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
-        grft = self.forceplatforms.index.to_numpy()
+        grfy = self.grf.values.astype(float).flatten()
+        grft = self.grf.index.to_numpy()
         mins = grft[sp.find_peaks(-grfy[grft < start_s2])]
         if len(mins) == 0:
             con_start = start_s2
@@ -201,8 +199,8 @@ class SquatJump(StateFrame):
         """
 
         # get the longest batch with grf lower than 30N
-        grfy = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
-        grft = self.forceplatforms.index.to_numpy()
+        grfy = self.grf.values.astype(float)
+        grft = self.grf.index.to_numpy()
         batches = sp.continuous_batches(grfy <= 30)
         msg = "No flight phase found."
         if len(batches) == 0:
@@ -270,62 +268,6 @@ class SquatJump(StateFrame):
 
         # return the range
         return self.slice(time_start, time_end)
-
-    @property
-    def rate_of_force_development(self):
-        """
-        return the maximum rate of force development over the concentric phase
-        of the jump in N/s
-        """
-        # get the vertical force data
-        confp = self.concentric_phase.forceplatforms.fRes.FORCE
-        grf = confp.Y.values.astype(float).flatten()
-        time = confp.index.to_numpy()
-
-        # get the rfd value
-        return float(np.max(sp.winter_derivative1(grf, time)))
-
-    @property
-    def velocity_at_toeoff(self):
-        """return the vertical velocity at the toeoff in m/s"""
-
-        # get the vertical velocity
-        pos = self.markers.S2.Y.values.astype(float).flatten()
-        time = self.markers.index.to_numpy()
-        vel = sp.winter_derivative1(pos, time)
-
-        # remove the first and last sample from time to be aligned with vel
-        time = time[1:-1]
-
-        # get the velocity at the last time instant of the concentric phase
-        loc = np.where(time >= self.concentric_phase.markers.index[-1])[0][0]
-        return float(vel[loc])
-
-    @property
-    def jump_height(self):
-        """return the jump height in m"""
-
-        # get the vertical position of S2 at the flight phase
-        pos = self.flight_phase.markers.S2.Y.values.astype(float).flatten()
-
-        # get the difference between the first and highest sample
-        maxh = np.max(pos)
-        toeoffh = pos[0]
-        return float(maxh - toeoffh)
-
-    @property
-    def concentric_power(self):
-        """return the mean power in W generated during the concentric phase"""
-        # get the concentric phase grf and vertical velocity
-        con = self.concentric_phase
-        s2y = con.markers.S2.Y.values.astype(float).flatten()
-        s2t = con.markers.index.to_numpy()
-        s2v = sp.winter_derivative1(s2y, s2t)
-        s2t = s2t[1:-1]
-        grf = con.forceplatforms.loc[s2t].fRes.FORCE.Y.values.astype(float).flatten()
-
-        # return the mean power output
-        return float(np.mean(grf * s2v))
 
     # * methods
 
@@ -397,6 +339,25 @@ class SquatJump(StateFrame):
             emg_idx = self.emgs.index.to_numpy()
             emg_loc = np.where((emg_idx >= t_start) & (emg_idx <= t_end))[0]
             self._emgs = self._emgs.iloc[emg_loc]
+
+    def _check_inputs(self):
+        """check the validity of the entered data"""
+        # ensure that the 'rFoot' and 'lFoot' force platform objects exist
+        lbls = np.unique(self.forceplatforms.columns.get_level_values(0))
+        required_fp = ["lFoot", "rFoot"]
+        for lbl in required_fp:
+            if not any([i == lbl for i in lbls]):
+                msg = f"the data does not contain the required '{lbl}'"
+                msg += " forceplatform object."
+                raise ValueError(msg)
+        self._forceplatforms = self._forceplatforms[required_fp]
+
+        # ensure that the 'S2' marker exists
+        lbls = np.unique(self.markers.columns.get_level_values(0))
+        if not any([i == "S2" for i in lbls]):
+            msg = "the data does not contain the 'S2' marker."
+            raise ValueError(msg)
+        self._markers = self._markers[["S2"]]
 
     # * constructors
 
@@ -490,24 +451,8 @@ class SquatJump(StateFrame):
             emgs_raw=emgs_raw,
         )
 
-        # ensure that the 'fRes', 'rFoot' and 'lFoot' force platform objects exist
-        lbls = np.unique(self.forceplatforms.columns.get_level_values(0))
-        required_fp = ["fRes", "lFoot", "rFoot"]
-        for lbl in required_fp:
-            if not any([i == lbl for i in lbls]):
-                msg = f"the data does not contain the required '{lbl}'"
-                msg += " forceplatform object."
-                raise ValueError(msg)
-        self._forceplatforms = self._forceplatforms[required_fp]
-
-        # ensure that the 'S2' marker exists
-        lbls = np.unique(self.markers.columns.get_level_values(0))
-        if not any([i == "S2" for i in lbls]):
-            msg = "the data does not contain the 'S2' marker."
-            raise ValueError(msg)
-        self._markers = self._markers[["S2"]]
-
-        # check the process data attribute
+        # check the inputs are valid
+        self._check_inputs()
         if not isinstance(process_data, bool):
             raise ValueError("'process_data' must be a boolean object.")
 
@@ -674,14 +619,11 @@ class SquatJumpTest(LabTest):
     jumps
         the list of available SquatJump objects.
 
+    results_table
+        a table containing the metrics resulting from each jump
+
     summary_table
-        A table with summary statistics about the test. The table
-        includes the following elements:
-            * jump height
-            * concentric power
-            * rate of force development
-            * velocity at toeoff
-            * muscle symmetry (for each tested muscle)
+        A table with summary statistics about the test.
 
     summary_plot
         a plotly FigureWidget summarizing the results of the test
@@ -705,69 +647,90 @@ class SquatJumpTest(LabTest):
         return self._jumps
 
     @property
-    def _raw_summary_table(self):
-        """
-        private attribute used internally to derive the summary metrics from
-        each jump. It should not be called except from the 'summary_table'
-        and the 'summary_plot' attribute.
-        """
-        # get the EMG norms and user weight
-        weight = self.baseline.weight
+    def results_table(self):
+        """Return a table containing the test results."""
 
         # get the required metrics from each jump
-        summary_list = []
-        for jump in self.jumps:
-            line = {
-                ("jump height", "", "cm"): jump.jump_height * 100,
-                ("concentric power", "", "W/kg"): jump.concentric_power / weight,
-                ("force development", "", "kgf/s"): jump.rate_of_force_development / G,
-                ("velocity at toe-off", "", "m/s"): jump.velocity_at_toeoff,
-                **self._jump_symmetry(jump).to_dict(),
-            }
-            summary_list += [pd.DataFrame(pd.Series(line)).T]
+        res = [pd.DataFrame(self._get_jump_features(i)).T for i in self.jumps]
 
-        # conver the results to table
-        table = pd.concat(summary_list, ignore_index=True)
-        table.index = pd.Index([f"JUMP{i + 1}" for i in range(table.shape[0])])
+        # convert the results to table
+        table = pd.concat(res, ignore_index=True)
+        table.index = pd.Index([f"Jump {i + 1}" for i in range(table.shape[0])])
 
         return table
 
     @property
     def summary_table(self):
-        """
-        Return a table with summary statistics about the test. The table
-        includes the following elements:
-            * jump height
-            * concentric power
-            * rate of force development
-            * velocity at toeoff
-            * muscle symmetry
-        """
-        # get the raw table
-        table = self._raw_summary_table
+        """Return a table with summary statistics about the test."""
+        # generate a long format table
+        res = self.results_table.unstack()
+        idx = res.index.to_frame()
+        tbl = pd.concat([idx, res], axis=1).reset_index(drop=True)
+        tbl.columns = pd.Index(["METRIC", "UNIT", "JUMP", "VALUE"])
 
-        # append mean and max values between jumps
-        mean = table.mean(axis=0).values
-        best = table.max(axis=0).values
-        table.loc["MEAN", table.columns] = mean
-        table.loc["BEST", table.columns] = best
-        table.loc["BEST", [i for i in table.columns if i[-1] == "%"]] = None
+        # get the mean and std stats
+        grp = tbl.groupby(["METRIC", "UNIT"])
+        ref = grp.describe([])["VALUE"][["mean", "std"]]
+        ref.columns = pd.Index(["MEAN", "STD"])
 
-        return table
+        # add the values from the best jump
+        best_jump_idx = np.argmax(res.Elevation.values.astype(float).flatten())
+        best_jump = res.index[best_jump_idx][-1]  # type: ignore
+        vals = res.loc[[i for i in res.index if i[-1] == best_jump]]
+        vals.index = vals.index.droplevel(2)
+        ref.loc[vals.index, "BEST"] = vals.values
+        ref = pd.concat([ref.index.to_frame(), ref], axis=1)
+        ref = ref.reset_index(drop=True)
+
+        return ref
 
     @property
     def summary_plot(self):
         """return a matplotlib figure highlighting the test results"""
 
+        # get the summary results in long format
+        raw = self.summary_table
+        best = raw[["METRIC", "UNIT", "BEST"]].copy()
+        best.columns = best.columns.map(lambda x: x.replace("BEST", "VALUE"))
+        best.insert(0, "TYPE", np.tile("BEST JUMP", best.shape[0]))
+        mean = raw[["METRIC", "UNIT", "MEAN", "STD"]].copy()
+        mean.columns = pd.Index(["METRIC", "UNIT", "VALUE", "ERROR"])
+        mean.insert(0, "TYPE", np.tile("MEAN PERFORMANCE", mean.shape[0]))
+        long = pd.concat([best, mean], ignore_index=True)
+
+        # separate performance data from muscle symmetry data
+        idx = long.index
+        idx = [i for i in idx if str(long.loc[i, "METRIC"]).endswith("Imbalance")]
+        vals = long.loc[[i for i in long.index if i not in idx]]
+        syms = long.loc[idx]
+
         # generate the figure and the subplot grid
+        muscles = np.unique(syms.METRIC.values.astype(str)).tolist()
+        feats = np.unique(vals.METRIC.values.astype(str)).tolist()
+        ncols = len(feats) * len(muscles)
+        nrows = 1
+        row0 = []
+        for _ in feats:
+            line = [{"colspan": len(muscles)}]
+            line += [None for i in range(len(muscles) - 1)]
+            row0 += line
+        specs = [row0]
+        if len(muscles) > 0:
+            nrows += 1
+            row1 = []
+            for _ in muscles:
+                line = [{"colspan": len(feats)}]
+                line += [None for i in range(len(feats) - 1)]
+                row1 += line
+            specs += [row1]
         fig = make_subplots(
-            rows=2,
-            cols=2,
-            subplot_titles=["JUMP HEIGHT", "POWER", "SYMMETRIES"],
-            specs=[[{}, {}], [{"colspan": 2}, None]],
+            rows=nrows,
+            cols=ncols,
+            subplot_titles=feats + muscles,
+            specs=specs,
             shared_xaxes=False,
             shared_yaxes=False,
-            horizontal_spacing=0.20,
+            horizontal_spacing=0.1,
             vertical_spacing=0.15,
             row_titles=None,
             column_titles=None,
@@ -775,191 +738,176 @@ class SquatJumpTest(LabTest):
             y_title=None,
         )
 
-        # get the raw results
-        raw = self._raw_summary_table
+        # plot the jump properties
+        for i, param in enumerate(feats):
+            dfr = vals.loc[vals.METRIC == param]
+            mean = dfr.loc[dfr.TYPE == "MEAN"]
+            base = min(dfr.VALUE.min(), (mean.VALUE - mean.ERROR.values).min())
+            base = float(base * 0.9)
+            dfr.insert(0, "BASE", np.tile(base, dfr.shape[0]))
+            maxval = max(dfr.VALUE.max(), (mean.VALUE + mean.ERROR.values).max())
+            maxval = float(maxval * 1.1)
+            dfr.loc[dfr.index, "VALUE"] = dfr.loc[dfr.index, "VALUE"] - base
+            fig0 = px.bar(
+                data_frame=dfr,
+                x="METRIC",
+                y="VALUE",
+                error_y="ERROR",
+                color="TYPE",
+                barmode="group",
+                base="BASE",
+            )
+            fig0.update_traces(
+                showlegend=bool(i == 0),
+                legendgroup="METRIC",
+                legendgrouptitle_text="METRIC",
+            )
+            for trace in fig0.data:
+                fig.add_trace(row=1, col=i * len(muscles) + 1, trace=trace)
+            fig.update_yaxes(
+                row=1,
+                col=i * len(muscles) + 1,
+                title=dfr.UNIT.values.astype(str).flatten()[0],
+                range=[base, maxval],
+            )
+        fig.update_xaxes(row=1, showticklabels=False)
 
-        # plot the jump height
-        for trace in self._get_bar_traces(raw["jump height"]):
-            fig.add_trace(row=1, col=1, trace=trace)
-        fig.update_yaxes(row=1, col=1, title="cm")
-
-        # plot the concentric power
-        for trace in self._get_bar_traces(raw["concentric power"]):
-            fig.add_trace(row=1, col=2, trace=trace)
-        fig.update_yaxes(row=1, col=2, title="W/kg")
-
-        # get symmetry mean data
-        sym_objs = np.unique([i[0] for i in raw.columns if i[-1] == "%"])
-        avg = raw.mean(axis=0)[sym_objs].astype(float)
-        std = raw.std(axis=0)[sym_objs].astype(float)
-        base = [max((i - j) * 0.9, 0) for i, j in zip(avg.values, std.values)]
-        base = float(np.min(base))
-        sym_list = []
-        lbls = np.unique(avg.index.get_level_values(0)).tolist()
-        for lbl in lbls:
-            for side in ["left", "right"]:
-                line = {
-                    "SIDE": side.upper(),
-                    "METRIC": lbl.upper().replace("_", " "),
-                    "VALUE": float(avg[lbl][side].values) - base,
-                    "ERROR": float(std[lbl][side].values),
-                    "TEXT": f"{float(avg[lbl][side].values):0.1f}",
-                    "BASE": base,
-                }
-                sym_list += [pd.DataFrame(pd.Series(line)).T]
-        sym_df = pd.concat(sym_list, ignore_index=True)
-
-        # plot symmetry
-        fig0 = px.bar(
-            data_frame=sym_df,
-            x="METRIC",
-            y="VALUE",
-            color="SIDE",
-            base="BASE",
-            error_y="ERROR",
-            text="TEXT",
-            barmode="group",
-            opacity=1,
-            color_discrete_sequence=[
-                px.colors.qualitative.Plotly[2],
-                px.colors.qualitative.Plotly[4],
-            ],
-        )
-        fig0.update_layout(showlegend=False)
-        for trace in fig0.data:
-            fig.add_trace(row=2, col=1, trace=trace)
-        fig.update_yaxes(row=2, col=1, title="%")
-
-        # add the target mean symmetry line
-        fig.add_hline(
-            y=50,
-            line_dash="dash",
-            line_width=2,
-            line_color=px.colors.qualitative.Plotly[5],
-            opacity=0.5,
-            showlegend=False,
-            row=2,  # type: ignore
-            col=1,  # type: ignore
-        )
+        # get symmetry data
+        left = syms.copy()
+        left.VALUE = 50 - left.VALUE.values.astype(float)
+        left.insert(0, "SIDE", np.tile("Left", left.shape[0]))
+        right = syms.copy()
+        right.VALUE = 50 + right.VALUE.values.astype(float)
+        right.insert(0, "SIDE", np.tile("Right", right.shape[0]))
+        syms = pd.concat([left, right], ignore_index=True)
+        valmean = syms.loc[syms.TYPE == "MEAN", ["VALUE", "ERROR"]]
+        valmax = max(syms.VALUE.max(), valmean.sum(axis=1).max()) * 1.1
+        base = min(syms.VALUE.min(), (valmean.VALUE - valmean.ERROR.values).min())
+        base = float(base * 0.9)
+        syms.insert(0, "BASE", np.tile(base, syms.shape[0]))
+        syms.loc[syms.index, "VALUE"] = syms.loc[syms.index, "VALUE"] - base
+        for i, param in enumerate(muscles):
+            dfr = syms.loc[syms.METRIC == param]
+            fig0 = px.bar(
+                data_frame=dfr,
+                x="TYPE",
+                y="VALUE",
+                color="SIDE",
+                error_y="ERROR",
+                barmode="group",
+                base="BASE",
+                color_discrete_sequence=px.colors.qualitative.Plotly[2:],
+            )
+            fig0.update_traces(
+                showlegend=bool(i == 0),
+                legendgroup="SIDE",
+                legendgrouptitle_text="SIDE",
+            )
+            for trace in fig0.data:
+                fig.add_trace(row=2, col=i * len(feats) + 1, trace=trace)
+            fig.add_hline(
+                y=50,
+                line_dash="dash",
+                line_width=2,
+                opacity=0.5,
+                showlegend=False,
+                row=2,  # type: ignore
+                col=int(i * len(feats)) + 1,  # type: ignore
+            )
+            if i == 0:
+                fig.update_yaxes(row=2, col=i * len(feats) + 1, title="%")
+            else:
+                fig.update_yaxes(row=2, col=i * len(feats) + 1, visible=False)
+        fig.update_yaxes(row=2, range=[base, valmax])
 
         # update the layout and return
-        fig.update_traces(error_y_color="rgba(0, 0, 0, 0.3)")
         fig.update_layout(
             legend={
                 "x": 1,
                 "y": 0.4,
                 "xref": "container",
                 "yref": "container",
-                "title": "SIDE",
             },
             template="simple_white",
             height=600,
-            width=600,
+            width=1200,
         )
 
         return go.FigureWidget(fig)
 
     # * methods
 
-    def _jump_symmetry(self, jump: SquatJump):
+    def _get_jump_features(self, jump: SquatJump):
         """
-        private method used to extract jump symmetries from emg data and grf.
+        get the properties of a jump
 
         Parameters
         ----------
         jump: SquatJump
-            the jump to be compared
+            the jump from which the features have to be extracted
 
         Returns
         -------
-        syms: dict[str, float]
-            the relative contribution of each side for each available pair of
-            data.
-
-        Procedure
-        ---------
-        the method integrates left and right GRF (and optionally EMG signals)
-        and provides the relative ratio between the two sides.
+        feats: pd.Series
+            a pandas Series containing the extracted features
         """
-        # get the jump concentric phase
+        # get the EMG norms and user weight
+        weight = self.baseline.weight
+
+        # get the required metrics from each jump
         con = jump.concentric_phase
+        grf = con.forceplatforms.lFoot.FORCE.Y.values.astype(float).flatten()
+        grf += con.forceplatforms.rFoot.FORCE.Y.values.astype(float).flatten()
+        time = con.forceplatforms.index.to_numpy()
 
-        # get GRF integrals over time
-        fps = con.forceplatforms
-        lgrf = fps.lFoot.FORCE.Y.values.astype(float).flatten()
-        rgrf = fps.rFoot.FORCE.Y.values.astype(float).flatten()
-        time = fps.index.to_numpy()
-        syms = {
-            ("grf", "left", "%"): float(np.trapezoid(lgrf, x=time)),
-            ("grf", "right", "%"): float(np.trapezoid(rgrf, x=time)),
+        # impulse
+        imp = float(np.trapezoid(grf, time))
+        weight_integral = np.tile(weight * G, len(time))
+        weight_integral = float(np.trapezoid(weight_integral, time))
+        net_imp = imp - weight_integral
+
+        # velocity
+        velocity = net_imp / weight
+
+        # power
+        dtime = float(time[-1] - time[0])
+        power = net_imp / dtime * velocity
+
+        # elevation
+        s2y = jump.flight_phase.markers.S2.Y.values.astype(float).flatten()
+        elevation = float(np.max(s2y) - s2y[0]) * 100
+
+        # efficiency
+        pot_energy = weight * G * elevation / 100
+        work = power * dtime
+        efficiency = pot_energy / work * 100
+
+        # get the output data
+        line = {
+            ("Elevation", "cm"): elevation,
+            ("Power", "W/kg"): power / weight,
+            ("Efficiency", "%"): efficiency,
         }
-        syms = pd.Series(syms)
 
-        # check if EMG data exists
+        # add EMG data
         if jump.emgs.shape[0] > 0:
 
             # get normalized EMG amplitudes
             emg_norms = self.baseline.emg_norms.loc["median"]
             emgs = con.emgs / emg_norms
 
-            # get integral of EMG signals
+            # get muscle symmetries
             syms_emg = emgs.apply(np.trapezoid, x=emgs.index, axis=0, raw=True)
             syms_emg.sort_index(inplace=True)
-            for i in syms_emg.index:
-                syms[(i[0], i[1], "%")] = float(syms_emg[i])
+            for muscle in np.unique(syms_emg.index.get_level_values(0)):
+                splits = muscle.split("_")
+                lbl = [i[0].upper() + i[1:].lower() for i in splits]
+                lbl = " ".join(lbl + ["Imbalance"])
+                val = syms_emg[muscle]["right"] - syms_emg[muscle]["left"]
+                val /= syms_emg[muscle]["right"] + syms_emg[muscle]["left"]
+                line[(lbl, "%")] = float(val.values * 100)
 
-        # calculate percentage of each side
-        labels = np.unique(syms.index.get_level_values(0))
-        for label in labels:
-            syms[label] = syms[label] / syms[label].sum() * 100
-
-        return syms
-
-    def _get_bar_traces(self, obj: pd.Series):
-        """
-        private method used to extract the traces to be plotted
-
-        Parameters
-        ----------
-        obj: pd.Series
-            the series of the data
-
-        Returns
-        -------
-        traces: tuple
-            a tuple containing the traces.
-        """
-        vals = obj.values.astype(float).flatten()
-        base = min(np.min(vals) * 0.9, np.mean(vals) - np.std(vals))
-        df = {
-            "BASE": np.tile(base, len(vals)),
-            "VALUE": vals - base,
-            "METRIC": obj.index,
-            "TEXT": [f"{i:0.1f}" for i in vals],
-        }
-        fig1 = px.bar(
-            data_frame=pd.DataFrame(df),
-            x="METRIC",
-            base="BASE",
-            y="VALUE",
-            text="TEXT",
-            barmode="group",
-            opacity=1,
-        )
-        fig1.update_traces(marker_color=px.colors.qualitative.Plotly[0])
-        fig1.add_trace(
-            trace=go.Bar(
-                x=["MEAN"],
-                y=[np.mean(vals) - base],
-                base=[base],
-                text=[f"{np.mean(vals):0.1f}"],
-                error_y=go.bar.ErrorY(array=[np.std(vals)]),
-                showlegend=False,
-                marker_color=px.colors.qualitative.Plotly[1],
-            ),
-        )
-
-        return fig1.data
+        return pd.Series(line)
 
     def _check_valid_inputs(self):
         # check the baseline

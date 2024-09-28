@@ -1,15 +1,20 @@
-"""Squat Jump Test module"""
+"""Side Jump Test module"""
 
 #! IMPORTS
 
 
-from typing import Iterable, Literal
+from typing import Literal
+
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
+from ..base import G, LabTest
 from ..frames import StateFrame
 from ..statictests import StaticUprightStance
-from .counter_movement_jump import CounterMovementJump, CounterMovementJumpTest
+from .counter_movement_jump import CounterMovementJump
 
 __all__ = ["SideJump", "SideJumpTest"]
 
@@ -68,6 +73,9 @@ class SideJump(CounterMovementJump):
 
     marker_processing_options
         the parameters to set the filtering of the kinematic signals
+
+    grf
+        return the vertical ground reaction force
 
     eccentric_phase
         a StateFrame representing the eccentric phase of the jump
@@ -137,11 +145,37 @@ class SideJump(CounterMovementJump):
         """return the side of the jump"""
         return self._side
 
+    @property
+    def grf(self):
+        """return the grf"""
+        grfy = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
+        grf = pd.Series(grfy, index=self.forceplatforms.index.to_numpy())
+        return grf.astype(float)
+
     # * methods
 
     def copy(self):
         """create a copy of the object"""
         return self.from_stateframe(self, self.side)
+
+    def _check_inputs(self):
+        """check the validity of the entered data"""
+        # ensure that the 'fRes' force platform objects exist
+        lbls = np.unique(self.forceplatforms.columns.get_level_values(0))
+        required_fp = ["fRes"]
+        for lbl in required_fp:
+            if not any([i == lbl for i in lbls]):
+                msg = f"the data does not contain the required '{lbl}'"
+                msg += " forceplatform object."
+                raise ValueError(msg)
+        self._forceplatforms = self._forceplatforms[required_fp]
+
+        # ensure that the 'S2' marker exists
+        lbls = np.unique(self.markers.columns.get_level_values(0))
+        if not any([i == "S2" for i in lbls]):
+            msg = "the data does not contain the 'S2' marker."
+            raise ValueError(msg)
+        self._markers = self._markers[["S2"]]
 
     # * constructors
 
@@ -244,7 +278,7 @@ class SideJump(CounterMovementJump):
             emgs_fband=emgs_fband,
             emgs_rms_win=emgs_rms_win,
         )
-        if not isinstance(side, (Literal, str)):
+        if not isinstance(side, str):
             raise ValueError("'side' must be 'Left' or 'Right'.")
         self._side = side
 
@@ -386,7 +420,7 @@ class SideJump(CounterMovementJump):
         return out
 
 
-class SideJumpTest(CounterMovementJumpTest):
+class SideJumpTest(LabTest):
     """
     Class handling the data processing and analysis of the collected data about
     a side jump test.
@@ -413,14 +447,11 @@ class SideJumpTest(CounterMovementJumpTest):
     right_jumps
         the list of available (right) SideJump objects.
 
+    results_table
+        a table containing the metrics resulting from each jump
+
     summary_table
-        A table with summary statistics about the test. The table
-        includes the following elements:
-            * jump height
-            * concentric power
-            * rate of force development
-            * velocity at toeoff
-            * muscle symmetry (for each tested muscle)
+        A table with summary statistics about the test.
 
     summary_plot
         a plotly FigureWidget summarizing the results of the test
@@ -428,10 +459,254 @@ class SideJumpTest(CounterMovementJumpTest):
 
     # * class variables
 
+    _baseline: StaticUprightStance
     _left_jumps: list[SideJump]
     _right_jumps: list[SideJump]
 
+    # * attributes
+
+    @property
+    def baseline(self):
+        """return the baseline acquisition of the test"""
+        return self._baseline
+
+    @property
+    def left_jumps(self):
+        """return the left jumps performed during the test"""
+        return self._left_jumps
+
+    @property
+    def right_jumps(self):
+        """return the right jumps performed during the test"""
+        return self._right_jumps
+
+    @property
+    def results_table(self):
+        """Return a table containing the test results."""
+
+        # get the required metrics from each jump
+        res = []
+        for jump in self.left_jumps + self.right_jumps:
+            dfr = pd.DataFrame(self._get_jump_features(jump)).T
+            dfr.insert(0, "SIDE", np.tile(jump.side, dfr.shape[0]))
+            res += [dfr]
+
+        # convert the results to table
+        table = pd.concat(res, ignore_index=True)
+        table.index = pd.Index([f"Jump {i + 1}" for i in range(table.shape[0])])
+
+        return table
+
+    @property
+    def summary_table(self):
+        """Return a table with summary statistics about the test."""
+        # generate a long format table
+        res = self.results_table
+        res.insert(0, "JUMP", res.index)
+        tbl = []
+        for i in res.columns[2:]:
+            dfr = res[[("JUMP", ""), ("SIDE", ""), i]].copy()
+            dfr.columns = pd.Index(["JUMP", "SIDE", "VALUE"])
+            dfr.insert(0, "UNIT", np.tile(i[1], dfr.shape[0]))
+            dfr.insert(0, "METRIC", np.tile(i[0], dfr.shape[0]))
+            tbl += [dfr]
+        tbl = pd.concat(tbl, ignore_index=True)
+
+        # get the mean and std stats
+        grp = tbl.groupby(["METRIC", "UNIT", "SIDE"])
+        ref = grp.describe([])["VALUE"][["mean", "std"]]
+        ref.columns = pd.Index(["MEAN", "STD"])
+
+        # add the values from the best jump on each side
+        for side in res.SIDE.unique():
+            val = res.loc[res.SIDE == side]
+            idx = np.argmax(val.Elevation.values.astype(float).flatten())
+            best = str(val.JUMP.values[idx])
+            vals = res.loc[[i for i in res.JUMP if i == best]]
+            for i, (metric, unit) in enumerate(vals.columns[2:]):
+                ref_idx = (metric, unit, side)
+                ref.loc[ref_idx, "BEST"] = vals[(metric, unit)].values
+        ref = pd.concat([ref.index.to_frame(), ref], axis=1)
+        ref = ref.reset_index(drop=True)
+
+        return ref
+
+    @property
+    def summary_plot(self):
+        """return a matplotlib figure highlighting the test results"""
+
+        # get the summary results in long format
+        raw = self.summary_table
+        best = raw[["METRIC", "UNIT", "SIDE", "BEST"]].copy()
+        best.columns = best.columns.map(lambda x: x.replace("BEST", "VALUE"))
+        best.insert(0, "TYPE", np.tile("BEST JUMP", best.shape[0]))
+        mean = raw[["METRIC", "UNIT", "SIDE", "MEAN", "STD"]].copy()
+        mean.columns = pd.Index(["METRIC", "UNIT", "SIDE", "VALUE", "ERROR"])
+        mean.insert(0, "TYPE", np.tile("MEAN PERFORMANCE", mean.shape[0]))
+        long = pd.concat([best, mean], ignore_index=True)
+
+        # generate the figure and the subplot grid
+        feats = np.unique(long.METRIC.values.astype(str)).tolist()
+        fig = make_subplots(
+            rows=2,
+            cols=len(feats),
+            subplot_titles=feats,
+            shared_xaxes=False,
+            shared_yaxes=False,
+            horizontal_spacing=0.1,
+            vertical_spacing=0.15,
+            row_titles=["PERFORMANCE", "SYMMETRY"],
+            column_titles=None,
+            x_title=None,
+            y_title=None,
+        )
+
+        # plot the jump properties
+        for i, param in enumerate(feats):
+            dfr = long.loc[long.METRIC == param]
+            mean = dfr.loc[dfr.TYPE == "MEAN"]
+            base = min(dfr.VALUE.min(), (mean.VALUE - mean.ERROR.values).min())
+            base = float(base * 0.9)
+            dfr.insert(0, "BASE", np.tile(base, dfr.shape[0]))
+            maxval = max(dfr.VALUE.max(), (mean.VALUE + mean.ERROR.values).max())
+            maxval = float(maxval * 1.1)
+            dfr.loc[dfr.index, "VALUE"] = dfr.loc[dfr.index, "VALUE"] - base
+            fig0 = px.bar(
+                data_frame=dfr,
+                x="TYPE",
+                y="VALUE",
+                error_y="ERROR",
+                color="SIDE",
+                barmode="group",
+                base="BASE",
+            )
+            fig0.update_traces(
+                showlegend=bool(i == 0),
+                legendgroup="SIDE",
+                legendgrouptitle_text="SIDE",
+            )
+            for trace in fig0.data:
+                fig.add_trace(row=1, col=i + 1, trace=trace)
+            fig.update_yaxes(
+                row=1,
+                col=i + 1,
+                title=dfr.UNIT.values.astype(str).flatten()[0],
+                range=[base, maxval],
+            )
+
+        # get the symmetries
+        syms = []
+        for grp, dfa in long.groupby(["METRIC", "TYPE"]):
+            idx_sx = dfa.SIDE == "Left"
+            idx_dx = dfa.SIDE == "Right"
+            sx = float(dfa.loc[idx_sx].VALUE.values[0])
+            dx = float(dfa.loc[idx_dx].VALUE.values[0])
+            total = sx + dx
+            delta = 100 * (dx - sx) / total
+            dfa.loc[idx_sx, "VALUE"] = 50 - delta
+            dfa.loc[idx_dx, "VALUE"] = 50 + delta
+            syms += [dfa[["METRIC", "TYPE", "SIDE", "VALUE"]].copy()]
+        syms = pd.concat(syms, ignore_index=True)
+        base = float(syms.VALUE.min() * 0.9)
+        maxv = float(syms.VALUE.max() * 1.1)
+        syms.insert(0, "BASE", np.tile(base, syms.shape[0]))
+        syms.loc[syms.index, "VALUE"] = syms.VALUE - syms.BASE.values
+        for i, feat in enumerate(feats):
+            dfr = syms.loc[syms.METRIC == feat]
+            fig0 = px.bar(
+                data_frame=dfr,
+                x="TYPE",
+                y="VALUE",
+                color="SIDE",
+                barmode="group",
+                base="BASE",
+            )
+            fig0.update_traces(showlegend=False)
+            for trace in fig0.data:
+                fig.add_trace(row=2, col=i + 1, trace=trace)
+        fig.update_yaxes(row=2, visible=False, range=[base, maxv])
+        fig.update_yaxes(row=2, col=1, visible=True, title="%")
+
+        # add mean symmetry line
+        fig.add_hline(
+            y=50,
+            line_dash="dash",
+            line_width=2,
+            line_color=px.colors.qualitative.Plotly[2],
+            opacity=0.5,
+            row=2,  # type: ignore
+            showlegend=False,
+        )
+
+        # update the layout and return
+        fig.update_layout(
+            legend={
+                "x": 1,
+                "y": 0.4,
+                "xref": "container",
+                "yref": "container",
+            },
+            template="simple_white",
+            height=600,
+            width=1200,
+        )
+
+        return go.FigureWidget(fig)
+
     # * methods
+
+    def _get_jump_features(self, jump: SideJump):
+        """
+        get the properties of a jump
+
+        Parameters
+        ----------
+        jump: SquatJump
+            the jump from which the features have to be extracted
+
+        Returns
+        -------
+        feats: pd.Series
+            a pandas Series containing the extracted features
+        """
+        # get the EMG norms and user weight
+        weight = self.baseline.weight
+
+        # get the required metrics from each jump
+        con = jump.concentric_phase
+        grf = con.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
+        time = con.forceplatforms.index.to_numpy()
+
+        # impulse
+        imp = float(np.trapezoid(grf, time))
+        weight_integral = np.tile(weight * G, len(time))
+        weight_integral = float(np.trapezoid(weight_integral, time))
+        net_imp = imp - weight_integral
+
+        # velocity
+        velocity = net_imp / weight
+
+        # power
+        dtime = float(time[-1] - time[0])
+        power = net_imp / dtime * velocity
+
+        # elevation
+        s2y = jump.flight_phase.markers.S2.Y.values.astype(float).flatten()
+        elevation = float(np.max(s2y) - s2y[0]) * 100
+
+        # efficiency
+        pot_energy = weight * G * elevation / 100
+        work = power * dtime
+        efficiency = pot_energy / work * 100
+
+        # get the output data
+        line = {
+            ("Elevation", "cm"): elevation,
+            ("Power", "W/kg"): power / weight,
+            ("Efficiency", "%"): efficiency,
+        }
+
+        return pd.Series(line)
 
     def _check_valid_inputs(self):
         # check the baseline
@@ -439,12 +714,10 @@ class SideJumpTest(CounterMovementJumpTest):
             raise ValueError("baseline must be a StaticUprightStance instance.")
 
         # check for the jumps
-        if not isinstance(self._left_jumps, Iterable):
+        if not isinstance(self._left_jumps, list):
             raise ValueError("'left_jumps' must be a list of SideJump objects.")
-        self._left_jumps = list(self._left_jumps)
-        if not isinstance(self._right_jumps, Iterable):
+        if not isinstance(self._right_jumps, list):
             raise ValueError("'right_jumps' must be a list of SideJump objects.")
-        self._right_jumps = list(self._right_jumps)
         for jump in self._left_jumps + self._right_jumps:
             if not isinstance(jump, SideJump):
                 msg = f"All jumps must be SideJump instances."

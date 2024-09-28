@@ -1,4 +1,4 @@
-"""Squat Jump Test module"""
+"""Counter Movement Jump Test module"""
 
 #! IMPORTS
 
@@ -71,6 +71,9 @@ class CounterMovementJump(SquatJump):
     marker_processing_options
         the parameters to set the filtering of the kinematic signals
 
+    grf
+        return the vertical ground reaction force
+
     eccentric_phase
         a StateFrame representing the eccentric phase of the jump
 
@@ -82,19 +85,6 @@ class CounterMovementJump(SquatJump):
 
     loading_response_phase
         a StateFrame representing the loading response phase of the jump
-
-    rate_of_force_development
-        return the rate of force development over the concentric phase of the
-        jump
-
-    velocity_at_toeoff
-        return the vertical velocity at the toeoff in m/sù
-
-    concentric_power
-        return the mean power in W generated during the concentric phase
-
-    jump_height
-        return the height of the jump in cm
 
     Methods
     -------
@@ -169,8 +159,8 @@ class CounterMovementJump(SquatJump):
         s2y_0 = float(round(s2t[batches[-1][0]], 3))  # type: ignore
 
         # take the last peak in vertical grf occurring before s2y_0
-        grfy = self.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
-        grft = self.forceplatforms.index.to_numpy()
+        grfy = self.grf.values.astype(float).flatten()
+        grft = self.grf.index.to_numpy()
         idx = np.where(grft < s2y_0)[0]
         grf_pks = sp.find_peaks(grfy[idx])
         if len(grf_pks) == 0:
@@ -186,67 +176,6 @@ class CounterMovementJump(SquatJump):
     def copy(self):
         """create a copy of the object"""
         return super().from_stateframe(self)
-
-    def resize(
-        self,
-        extra_time_window: float | int = 0.2,
-        inplace: bool = True,
-    ):
-        """
-        resize the available data to the relevant phases of the jump.
-
-        This function removes the data at the beginning and at the end of the
-        jump leaving just the selected 'extra_time_window' at both sides.
-        The jump is assumed to start at the beginning of the 'eccentric_phase'
-        and to end when the 'loading_response_phase' is concluded.
-
-        Parameters
-        ----------
-        extra_time_window : float | int (default = 0.2)
-            the extra time allowed at both sides of the available data that is
-            retained from resizing.
-
-        inplace: bool (default = True)
-            if True, the function resizes the current jump instance. Otherwise
-            it returns a resized copy.
-
-        Returns
-        -------
-        if 'inplace=True', it returns nothing. Otherwise a new instance of
-        SquatJump is returned.
-        """
-        # check the input data
-        if not isinstance(extra_time_window, (int, float)):
-            raise ValueError("'extra_time_window' has to be an int or float.")
-        if not isinstance(inplace, bool):
-            raise ValueError("'inplace' has to be a boolean.")
-
-        # set the start and end of the test
-        t_start = self.eccentric_phase.to_dataframe().index.to_numpy()[0]
-        t_start = max(t_start - extra_time_window, 0)
-        t_end = self.loading_response_phase.to_dataframe().index.to_numpy()[-1]
-        t_last = self.to_dataframe().index.to_numpy()[-1]
-        t_end = min(t_end + extra_time_window, t_last)
-
-        # handle the inplace option
-        if not inplace:
-            return self.from_stateframe(self.slice(t_start, t_end))
-
-        # markers
-        mrk_idx = self.markers.index.to_numpy()
-        mrk_loc = np.where((mrk_idx >= t_start) & (mrk_idx <= t_end))[0]
-        self._markers = self._markers.iloc[mrk_loc]
-
-        # forceplatforms
-        fps_idx = self.forceplatforms.index.to_numpy()
-        fps_loc = np.where((fps_idx >= t_start) & (fps_idx <= t_end))[0]
-        self._forceplatforms = self._forceplatforms.iloc[fps_loc]
-
-        # emgs
-        if self.emgs.shape[0] > 0:
-            emg_idx = self.emgs.index.to_numpy()
-            emg_loc = np.where((emg_idx >= t_start) & (emg_idx <= t_end))[0]
-            self._emgs = self._emgs.iloc[emg_loc]
 
     # * constructors
 
@@ -479,14 +408,11 @@ class CounterMovementJumpTest(SquatJumpTest):
     jumps
         the list of available jumps.
 
+    results_table
+        a table containing the metrics resulting from each jump
+
     summary_table
-        A table with summary statistics about the test. The table
-        includes the following elements:
-            * jump height
-            * concentric power
-            * rate of force development
-            * velocity at toeoff
-            * muscle symmetry (for each tested muscle)
+        A table with summary statistics about the test.
 
     summary_plot
         a plotly FigureWidget summarizing the results of the test
