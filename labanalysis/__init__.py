@@ -6,6 +6,9 @@ data processing.
 
 Libraries
 ---------
+constants
+    a library containing useful constant values.
+
 regression
     a library wrapping scikit-learn regression estimators.
 
@@ -27,9 +30,10 @@ plotting
     a set of functions for standard plots creation.
 """
 
+from .constants import *
 from .equations import *
+from .plotting import *
 from .regression import *
 from .signalprocessing import *
 from .testprotocols import *
 from .utils import *
-from .plotting import *

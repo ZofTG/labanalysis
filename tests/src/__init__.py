@@ -4,4 +4,4 @@ from .plotting import *
 from .regression import *
 from .signalprocessing import *
 from .utils import *
-from .testing import *
+from .testprotocols import *

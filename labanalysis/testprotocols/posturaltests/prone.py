@@ -5,9 +5,11 @@
 import numpy as np
 import pandas as pd
 
+from ...constants import G
+
 from ..frames import StateFrame
 from .upright import UprightStance
-from ..base import G, LabTest
+from ..base import LabTest
 from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go

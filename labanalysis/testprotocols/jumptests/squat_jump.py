@@ -12,11 +12,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from ... import signalprocessing as sp
-from ..base import LabTest, G
+from ...constants import G
+from ..base import LabTest
 from ..frames import StateFrame
 from ..posturaltests.upright import UprightStance
 
-__all__ = ["SquatJump", "SquatJumpTest"]
+__all__ = ["SquatJump", "SquatJumpTest", "get_jump_features"]
 
 
 #! CLASSES
@@ -651,7 +652,8 @@ class SquatJumpTest(LabTest):
         """Return a table containing the test results."""
 
         # get the required metrics from each jump
-        res = [pd.DataFrame(self._get_jump_features(i)).T for i in self.jumps]
+        base = self.baseline
+        res = [pd.DataFrame(get_jump_features(i, base)).T for i in self.jumps]
 
         # convert the results to table
         table = pd.concat(res, ignore_index=True)
@@ -741,6 +743,7 @@ class SquatJumpTest(LabTest):
         # plot the jump properties
         for i, param in enumerate(feats):
             dfr = vals.loc[vals.METRIC == param]
+            dfr.insert(0, "TEXT", [f"{i:0.1f}" for i in dfr.VALUE])
             mean = dfr.loc[dfr.TYPE == "MEAN"]
             base = min(dfr.VALUE.min(), (mean.VALUE - mean.ERROR.values).min())
             base = float(base * 0.9)
@@ -752,6 +755,7 @@ class SquatJumpTest(LabTest):
                 data_frame=dfr,
                 x="METRIC",
                 y="VALUE",
+                text="TEXT",
                 error_y="ERROR",
                 color="TYPE",
                 barmode="group",
@@ -780,6 +784,7 @@ class SquatJumpTest(LabTest):
         right.VALUE = 50 + right.VALUE.values.astype(float)
         right.insert(0, "SIDE", np.tile("Right", right.shape[0]))
         syms = pd.concat([left, right], ignore_index=True)
+        syms.insert(0, "TEXT", [f"{i:0.1f}" for i in syms.VALUE])
         valmean = syms.loc[syms.TYPE == "MEAN", ["VALUE", "ERROR"]]
         valmax = max(syms.VALUE.max(), valmean.sum(axis=1).max()) * 1.1
         base = min(syms.VALUE.min(), (valmean.VALUE - valmean.ERROR.values).min())
@@ -792,6 +797,7 @@ class SquatJumpTest(LabTest):
                 data_frame=dfr,
                 x="TYPE",
                 y="VALUE",
+                text="TEXT",
                 color="SIDE",
                 error_y="ERROR",
                 barmode="group",
@@ -837,78 +843,6 @@ class SquatJumpTest(LabTest):
 
     # * methods
 
-    def _get_jump_features(self, jump: SquatJump):
-        """
-        get the properties of a jump
-
-        Parameters
-        ----------
-        jump: SquatJump
-            the jump from which the features have to be extracted
-
-        Returns
-        -------
-        feats: pd.Series
-            a pandas Series containing the extracted features
-        """
-        # get the EMG norms and user weight
-        weight = self.baseline.weight
-
-        # get the required metrics from each jump
-        con = jump.concentric_phase
-        grf = con.forceplatforms.lFoot.FORCE.Y.values.astype(float).flatten()
-        grf += con.forceplatforms.rFoot.FORCE.Y.values.astype(float).flatten()
-        time = con.forceplatforms.index.to_numpy()
-
-        # impulse
-        imp = float(np.trapezoid(grf, time))
-        weight_integral = np.tile(weight * G, len(time))
-        weight_integral = float(np.trapezoid(weight_integral, time))
-        net_imp = imp - weight_integral
-
-        # velocity
-        velocity = net_imp / weight
-
-        # power
-        dtime = float(time[-1] - time[0])
-        power = net_imp / dtime * velocity
-
-        # elevation
-        s2y = jump.flight_phase.markers.S2.Y.values.astype(float).flatten()
-        elevation = float(np.max(s2y) - s2y[0]) * 100
-
-        # efficiency
-        pot_energy = weight * G * elevation / 100
-        work = power * dtime
-        efficiency = pot_energy / work * 100
-
-        # get the output data
-        line = {
-            ("Elevation", "cm"): elevation,
-            ("Power", "W/kg"): power / weight,
-            ("Efficiency", "%"): efficiency,
-        }
-
-        # add EMG data
-        if jump.emgs.shape[0] > 0:
-
-            # get normalized EMG amplitudes
-            emg_norms = self.baseline.emg_norms.loc["median"]
-            emgs = con.emgs / emg_norms
-
-            # get muscle symmetries
-            syms_emg = emgs.apply(np.trapezoid, x=emgs.index, axis=0, raw=True)
-            syms_emg.sort_index(inplace=True)
-            for muscle in np.unique(syms_emg.index.get_level_values(0)):
-                splits = muscle.split("_")
-                lbl = [i[0].upper() + i[1:].lower() for i in splits]
-                lbl = " ".join(lbl + ["Imbalance"])
-                val = syms_emg[muscle]["right"] - syms_emg[muscle]["left"]
-                val /= syms_emg[muscle]["right"] + syms_emg[muscle]["left"]
-                line[(lbl, "%")] = float(val.values * 100)
-
-        return pd.Series(line)
-
     def _check_valid_inputs(self):
         # check the baseline
         if not isinstance(self._baseline, UprightStance):
@@ -933,3 +867,95 @@ class SquatJumpTest(LabTest):
         self._baseline = baseline
         self._jumps = jumps
         self._check_valid_inputs()
+
+
+#! FUNCTIONS
+
+
+def get_jump_features(jump: SquatJump, baseline: UprightStance):
+    """
+    get the properties of a jump
+
+    Parameters
+    ----------
+    jump: Any Jump instance
+        the jump from which the features have to be extracted
+
+    baseline: UprightStance
+        an upright stance instance from which the user weight and EMG normative
+        data can be extracted
+
+    Returns
+    -------
+    feats: pd.Series
+        a pandas Series containing the extracted features
+    """
+    # check the inputs
+    if not isinstance(jump, SquatJump):
+        raise ValueError("'jump' must be a SquatJump instance.")
+    if not isinstance(baseline, UprightStance):
+        raise ValueError("'baseline' must be an UprightStance instance.")
+
+    # get the EMG norms and user weight
+    weight = baseline.weight
+
+    # get the required metrics from each jump
+    con = jump.concentric_phase
+    t0, t1 = con.forceplatforms.index.to_numpy()[[0, -1]]
+    grf = jump.grf
+    grf = grf.loc[(grf.index >= t0) & (grf.index <= t1)]
+    time = grf.index.to_numpy()
+    grf = grf.values.astype(float).flatten()
+
+    # impulse
+    imp = float(np.trapezoid(grf, time))
+    weight_integral = np.tile(weight * G, len(time))
+    weight_integral = float(np.trapezoid(weight_integral, time))
+    net_imp = imp - weight_integral
+
+    # velocity
+    velocity = net_imp / weight
+
+    # acceleration
+    dtime = float(time[-1] - time[0])
+    acceleration = velocity / dtime
+
+    # power
+    power = net_imp / dtime * velocity
+
+    # elevation
+    s2y = jump.flight_phase.markers.S2.Y.values.astype(float).flatten()
+    elevation = float(np.max(s2y) - s2y[0]) * 100
+
+    # efficiency
+    # pot_energy = weight * G * elevation / 100
+    # work = power * dtime
+    # efficiency = pot_energy / work * 100
+
+    # get the output data
+    line = {
+        ("Elevation", "cm"): elevation,
+        ("Velocity", "m/s"): velocity,
+        ("Acceleration", "m/s^2"): acceleration,
+        ("Relative Power", "W/kg"): power / weight,
+    }
+
+    # add EMG data
+    if jump.emgs.shape[0] > 0:
+
+        # get normalized EMG amplitudes
+        emg_norms = baseline.emg_norms.loc["median"]
+        emgs = con.emgs / emg_norms
+
+        # get muscle symmetries
+        syms_emg = emgs.apply(np.trapezoid, x=emgs.index, axis=0, raw=True)
+        syms_emg.sort_index(inplace=True)
+        for muscle in np.unique(syms_emg.index.get_level_values(0)):
+            splits = muscle.split("_")
+            lbl = [i[0].upper() + i[1:].lower() for i in splits]
+            lbl = " ".join(lbl + ["Imbalance"])
+            val = syms_emg[muscle]["right"] - syms_emg[muscle]["left"]
+            val /= syms_emg[muscle]["right"] + syms_emg[muscle]["left"]
+            line[(lbl, "%")] = float(val.values * 100)
+
+    return pd.Series(line)

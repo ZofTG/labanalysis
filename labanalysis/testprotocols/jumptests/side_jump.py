@@ -11,7 +11,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ..base import G, LabTest
+from .squat_jump import get_jump_features
+
+from ..base import LabTest
 from ..frames import StateFrame
 from ..posturaltests.upright import UprightStance
 from .counter_movement_jump import CounterMovementJump
@@ -386,7 +388,7 @@ class SideJump(CounterMovementJump):
     @classmethod
     def from_stateframe(cls, obj: StateFrame, side: Literal["Left", "Right"]):
         """
-        generate a CounterMovementJump from a StateFrame object
+        generate a SideJump from a StateFrame object
 
         Parameters
         ----------
@@ -427,8 +429,8 @@ class SideJumpTest(LabTest):
 
     Parameters
     ----------
-    baseline: StaticUprightStance
-        a StaticUprightStance instance defining the baseline acquisition.
+    baseline: UprightStance
+        a UprightStance instance defining the baseline acquisition.
 
     left_jumps: Iterable[SideJump]
         a variable number of SideJump objects
@@ -439,7 +441,7 @@ class SideJumpTest(LabTest):
     Attributes
     ----------
     baseline
-        the StaticUprightStance instance of the test
+        the UprightStance instance of the test
 
     left_jumps
         the list of available (left) SideJump objects.
@@ -486,8 +488,10 @@ class SideJumpTest(LabTest):
 
         # get the required metrics from each jump
         res = []
+        base = self.baseline
         for jump in self.left_jumps + self.right_jumps:
-            dfr = pd.DataFrame(self._get_jump_features(jump)).T
+            dfr = pd.DataFrame(get_jump_features(jump, base)).T
+            dfr = dfr[[i for i in dfr.columns if not i[0].endswith("Imbalance")]]
             dfr.insert(0, "SIDE", np.tile(jump.side, dfr.shape[0]))
             res += [dfr]
 
@@ -564,6 +568,7 @@ class SideJumpTest(LabTest):
         # plot the jump properties
         for i, param in enumerate(feats):
             dfr = long.loc[long.METRIC == param]
+            dfr.insert(0, "TEXT", [f"{i:0.1f}" for i in dfr.VALUE])
             mean = dfr.loc[dfr.TYPE == "MEAN"]
             base = min(dfr.VALUE.min(), (mean.VALUE - mean.ERROR.values).min())
             base = float(base * 0.9)
@@ -575,6 +580,7 @@ class SideJumpTest(LabTest):
                 data_frame=dfr,
                 x="TYPE",
                 y="VALUE",
+                text="TEXT",
                 error_y="ERROR",
                 color="SIDE",
                 barmode="group",
@@ -607,6 +613,7 @@ class SideJumpTest(LabTest):
             dfa.loc[idx_dx, "VALUE"] = 50 + delta
             syms += [dfa[["METRIC", "TYPE", "SIDE", "VALUE"]].copy()]
         syms = pd.concat(syms, ignore_index=True)
+        syms.insert(0, "TEXT", [f"{i:0.1f}" for i in syms.VALUE])
         base = float(syms.VALUE.min() * 0.9)
         maxv = float(syms.VALUE.max() * 1.1)
         syms.insert(0, "BASE", np.tile(base, syms.shape[0]))
@@ -617,6 +624,7 @@ class SideJumpTest(LabTest):
                 data_frame=dfr,
                 x="TYPE",
                 y="VALUE",
+                text="TEXT",
                 color="SIDE",
                 barmode="group",
                 base="BASE",
@@ -655,63 +663,10 @@ class SideJumpTest(LabTest):
 
     # * methods
 
-    def _get_jump_features(self, jump: SideJump):
-        """
-        get the properties of a jump
-
-        Parameters
-        ----------
-        jump: SquatJump
-            the jump from which the features have to be extracted
-
-        Returns
-        -------
-        feats: pd.Series
-            a pandas Series containing the extracted features
-        """
-        # get the EMG norms and user weight
-        weight = self.baseline.weight
-
-        # get the required metrics from each jump
-        con = jump.concentric_phase
-        grf = con.forceplatforms.fRes.FORCE.Y.values.astype(float).flatten()
-        time = con.forceplatforms.index.to_numpy()
-
-        # impulse
-        imp = float(np.trapezoid(grf, time))
-        weight_integral = np.tile(weight * G, len(time))
-        weight_integral = float(np.trapezoid(weight_integral, time))
-        net_imp = imp - weight_integral
-
-        # velocity
-        velocity = net_imp / weight
-
-        # power
-        dtime = float(time[-1] - time[0])
-        power = net_imp / dtime * velocity
-
-        # elevation
-        s2y = jump.flight_phase.markers.S2.Y.values.astype(float).flatten()
-        elevation = float(np.max(s2y) - s2y[0]) * 100
-
-        # efficiency
-        pot_energy = weight * G * elevation / 100
-        work = power * dtime
-        efficiency = pot_energy / work * 100
-
-        # get the output data
-        line = {
-            ("Elevation", "cm"): elevation,
-            ("Power", "W/kg"): power / weight,
-            ("Efficiency", "%"): efficiency,
-        }
-
-        return pd.Series(line)
-
     def _check_valid_inputs(self):
         # check the baseline
         if not isinstance(self._baseline, UprightStance):
-            raise ValueError("baseline must be a StaticUprightStance instance.")
+            raise ValueError("baseline must be a UprightStance instance.")
 
         # check for the jumps
         if not isinstance(self._left_jumps, list):
