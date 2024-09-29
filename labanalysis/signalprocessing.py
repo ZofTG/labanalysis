@@ -1427,9 +1427,8 @@ def gram_schmidt(
         w_mat += [w_arr]
 
     # normalize
-    w_mat = np.vstack(*np.atleast_2d(w_mat))
-    norm = np.ones_like(w_mat) * np.sum(w_mat**2, axis=0) ** 0.5
-    return (i for i in (w_mat / norm))
+    w_mat = np.vstack(np.atleast_2d(w_mat))  # type: ignore
+    return w_mat / (np.ones_like(w_mat) * (w_mat**2).sum(axis=1) ** 0.5).T
 
 
 def fillna(

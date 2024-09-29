@@ -30,6 +30,6 @@ plotting
 from .equations import *
 from .regression import *
 from .signalprocessing import *
-from .testing import *
+from .testprotocols import *
 from .utils import *
 from .plotting import *
