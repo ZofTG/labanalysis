@@ -934,9 +934,10 @@ def butterworth_filt(
 
     # get the filtered data
     if phase_corrected:
-        return signal.sosfiltfilt(sos, arr)
+        arr = signal.sosfiltfilt(sos, arr)
     else:
-        return signal.sosfilt(sos, arr)
+        arr = signal.sosfilt(sos, arr)  # type: ignore
+    return np.array([arr]).astype(float).flatten()
 
 
 def cubicspline_interp(

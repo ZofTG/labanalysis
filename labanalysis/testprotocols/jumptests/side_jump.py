@@ -537,7 +537,7 @@ class SideJumpTest(LabTest):
 
     @property
     def summary_plot(self):
-        """return a matplotlib figure highlighting the test results"""
+        """return a plotly figurewidget highlighting the test results"""
 
         # get the summary results in long format
         raw = self.summary_table

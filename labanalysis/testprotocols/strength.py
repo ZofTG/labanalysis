@@ -1,33 +1,99 @@
-"""strength testing module"""
+"""
+strength testing module
+
+CLASSES
+
+Isokinetic1RMTest
+    a class to handle Isokinetic 1RM tests
+"""
 
 #! IMPORTS
 
 
-from math import ceil
-from typing import Literal
+from os.path import exists
+from typing import Iterable
 
-import matplotlib.pyplot as plt
 import numpy as np
-from labio.read.biostrength import Product
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from labio.read.biostrength import Product as BiostrengthProduct
+from plotly.subplots import make_subplots
 
-from ..signalprocessing import butterworth_filt, find_peaks
-from ..utils import magnitude
-
+from .. import signalprocessing as sp
+from .base import LabTest
 
 #! CONSTANTS
 
 
-__all__ = ["Isokinetic1RM"]
-
+__all__ = ["Isokinetic1RMTest"]
 
 #! CLASSES
 
 
-class Isokinetic1RM:
-    """Isokinetic Test 1RM instance"""
+class Isokinetic1RMTest(LabTest):
+    """
+    Isokinetic Test 1RM instance
 
-    _repetitions: dict[str, Product]
-    _product: Product
+    Parameters
+    ----------
+    time: Iterable[int | float]
+        the array containing the time instant of each sample in seconds
+
+    position: Iterable[int | float]
+        the array containing the displacement of the handles for each sample
+
+    load: Iterable[int | float]
+        the array containing the load measured at each sample in kgf
+
+    coefs_1rm: tuple[int | float, int | float]
+        the b0 and b1 coefficients used to estimated the 1RM.
+
+    Attributes
+    ----------
+    raw: DataFrame
+        a DataFrame containing the input data
+
+    repetitions: list[DataFrame]
+        a list of dataframes each defining one single repetition
+
+    coefs_1rm: dict[str, float]
+        the 1RM conversion coefficients
+
+    peak_load: float
+        the peak load measured during the isokinetic repetitions
+
+    rom0: float
+        the start of the user's range of movement in meters
+
+    rom1: float
+        the end of the user's range of movement in meters
+
+    rom: float
+        the range of movement amplitude in meters
+
+    results_table: DataFrame
+        a table containing the data obtained during the test
+
+    summary_table: DataFrame
+        a table containing summary statistics about the test
+
+    summary_plot: FigureWidget
+        a figure representing the results of the test.
+    """
+
+    # * class variables
+
+    _repetitions: list[pd.DataFrame]
+    _1rm_coefs: tuple[int | float, int | float]
+    _raw: pd.DataFrame
+
+    # * attributes
+
+    @property
+    def raw(self):
+        """return the raw data"""
+        return self._raw
 
     @property
     def repetitions(self):
@@ -35,297 +101,297 @@ class Isokinetic1RM:
         return self._repetitions
 
     @property
+    def coefs_1rm(self):
+        """return the 1RM coefficients related to the isokinetic test"""
+        return self._1rm_coefs
+
+    @property
+    def peak_load(self):
+        """return the ending position of the repetitions"""
+        return float(self.summary_table["max"].max())
+
+    @property
+    def estimated_1rm(self):
+        """return the predicted 1RM"""
+        b0, b1 = self._1rm_coefs
+        return self.peak_load * b1 + b0
+
+    @property
     def rom1(self):
         """return the ending position of the repetitions"""
-        roms = []
-        for dfr in self.repetitions.values():
-            pos: list[float] = dfr.position_m  # type: ignore
-            roms += [float(np.max(pos))]
-        if len(roms) == 0:
-            return None
-        return float(np.mean(roms))
+        return float(np.mean([dfr.position.max() for dfr in self.repetitions]))
 
     @property
     def rom0(self):
         """return the starting position of the repetitions"""
-        roms = []
-        for dfr in self.repetitions.values():
-            pos: list[float] = dfr.position_m  # type: ignore
-            roms += [float(np.min(pos))]
-        if len(roms) == 0:
-            return None
-        return float(np.mean(roms))
+        return float(np.mean([dfr.position.min() for dfr in self.repetitions]))
 
     @property
     def rom(self):
         """return the Range of Movement"""
-        if self.rom0 is None or self.rom1 is None:
-            return None
         return self.rom1 - self.rom0
 
     @property
-    def peak_load(self):
-        """return the peak load recorded"""
-        loads = []
-        for dfr in self.repetitions.values():
-            load: list[float] = dfr.load_kgf  # type: ignore
-            loads += [float(np.max(load))]
-        if len(loads) == 0:
-            return None
-        return float(np.max(loads))
+    def summary_plot(self):
+        """return a plotly figurewidget highlighting the test results"""
 
-    def calculate_1rm(self):
-        """return the predicted 1RM"""
-        load = self.peak_load
-        if load is None:
-            return None
-        a, b = self.product.rm1_coefs  # type: ignore
-        return a * load + b
+        # generate the figure and the subplot grid
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            subplot_titles=["ISOKINETIC FORCE", "ESTIMATED 1RM"],
+            specs=[[{"colspan": 2}, None, {}]],
+            shared_xaxes=False,
+            shared_yaxes=False,
+            horizontal_spacing=0.15,
+            vertical_spacing=0.15,
+            row_titles=None,
+            column_titles=None,
+            x_title=None,
+            y_title=None,
+        )
+
+        # get the isokinetic vs rom data for each repetition
+        raw = self.results_table.dropna()[["Load", "REPETITION"]]
+        raw.columns = pd.Index(["Load", "Repetition"])
+
+        # plot the isokinetic vs rom data
+        for rep, dfr in raw.groupby("Repetition"):
+            nrep = int(rep)  # type: ignore
+            fig.add_trace(
+                row=1,
+                col=1,
+                trace=go.Scatter(
+                    x=dfr.index - dfr.index[0],
+                    y=dfr.Load,
+                    name=f"Rep {nrep}",
+                    legendgroup="REPETTION",
+                    mode="lines",
+                    fill="tozeroy",
+                    opacity=0.4,
+                    line_width=6,
+                    line_color=px.colors.qualitative.Plotly[nrep - 1],
+                ),
+            )
+
+        # get the 1RM
+        loads = self.summary_table.T["1RM"].T.MEAN.values.astype(float)
+        base = np.min(loads) * 0.9
+        df_1rm = pd.DataFrame(
+            {
+                "1RM": loads - base,
+                "TEXT": [f"{i:0.0f}" for i in loads],
+                "REPETITION": [f"REP {i + 1}" for i in np.arange(len(loads))],
+                "BASE": np.tile(base, len(loads)),
+            }
+        )
+        df_1rm.sort_values("REPETITION", inplace=True)
+
+        # plot the 1RM
+        fig1 = px.bar(
+            data_frame=df_1rm,
+            x="REPETITION",
+            y="1RM",
+            base="BASE",
+            text="TEXT",
+            barmode="group",
+        )
+        fig1.update_traces(
+            showlegend=False,
+            marker_color=px.colors.qualitative.Plotly,
+        )
+        for i, trace in enumerate(fig1.data):
+            fig.add_trace(row=1, col=3, trace=trace)
+
+        # update the layout and return
+        fig.update_yaxes(title="kg")
+        fig.update_xaxes(row=1, col=1, title="Repetition time (s)")
+        fig.update_layout(
+            template="simple_white",
+            height=400,
+            width=800,
+        )
+
+        return go.FigureWidget(fig)
 
     @property
-    def product(self):
-        return self._product
+    def summary_table(self):
+        """return a table containing summary statistics about the test"""
+        des = self.results_table.dropna().melt(
+            id_vars=[("REPETITION", "#")],
+            var_name="PARAMETER",
+            value_name="VALUE",
+        )
+        des.columns = pd.Index(["REPETITION", "PARAMETER", "VALUE"])
+        des.insert(
+            0,
+            "UNIT",
+            des.PARAMETER.map(
+                lambda x: (
+                    "m"
+                    if x == "Position"
+                    else ("kgf" if x == "Load" else ("m/s" if x == "Velocity" else "W"))
+                )
+            ),
+        )
+        b0, b1 = self.coefs_1rm
+        out = [des]
+        for grp, dfr in des.loc[des.PARAMETER == "Load"].groupby(["REPETITION"]):
+            line = {
+                "UNIT": "kgf",
+                "REPETITION": grp[0],
+                "PARAMETER": "1RM",
+                "VALUE": b0 + b1 * dfr.VALUE.max(),
+            }
+            out += [pd.DataFrame(pd.Series(line)).T]
+        des = pd.concat(out, ignore_index=True)
+        des = des.groupby(["PARAMETER", "UNIT", "REPETITION"])
+        out = {
+            "MEAN": des.mean(),
+            "STD": des.std(),
+            "MIN": des.min(),
+            "MEDIAN": des.median(),
+            "MAX": des.max(),
+        }
+        des = pd.concat(list(out.values()), axis=1)
+        des.columns = pd.Index(list(out.keys()))
 
-    def _find_repetitions(
-        self,
-        time: np.ndarray[Literal[1], np.dtype[np.float64]],
-        force: np.ndarray[Literal[1], np.dtype[np.float64]],
-        position: np.ndarray[Literal[1], np.dtype[np.float64]],
-    ):
+        return des
+
+    @property
+    def results_table(self):
         """
-        private method used to extract the samples defining the start
-        and stop of each repetition according to position and speed.
+        return a table containing the whole data
+        """
+        out = self.raw
+        for i, rep in enumerate(self.repetitions):
+            out.loc[rep.index, ("REPETITION", "#")] = i + 1
+        return out
+
+    # * methods
+
+    def _check_array(self, obj: object):
+        """
+        private method used evaluate if obj is an iterable of float or int
 
         Parameters
         ----------
-        time : np.ndarray[Any, np.dtype[np.float64]]
-            the force readings resulting from processed biodrive data
+        obj: object
+            the object to be checked
 
-        force : np.ndarray[Any, np.dtype[np.float64]]
-            the force readings resulting from processed biodrive data
-
-        position : np.ndarray[Any, np.dtype[np.float64]]
-            the position readings resulting from processed biodrive data
-
-        Results
+        Returns
         -------
-        reps: np.ndarray[Any, np.dtype[np.float64]]
-            a Nx2 array where each row denotes a repetition and the columns
-            respectively the starting and stopping samples of the rep.
+        arr: ArrayLike
+            a 1D array of float obtained from obj.
         """
-        prange = np.max(position) - np.min(position)
-        thr1 = float(0.75 * prange + np.min(position))
-        thr2 = float(0.1 * prange + np.min(position))
-        dis = int(round(1 / np.mean(np.diff(time))))
-        ppks = find_peaks(position, thr1, dis)
-        mmns = find_peaks(-position, -thr1)
-        reps = []
-        for ppk in ppks:
-            if len(reps) == 0:
-                start = np.where(position[:ppk] < thr2)[0]
-                start = start[-1] if len(start) > 0 else np.argmin(position[:ppk])
-            else:
-                start = mmns[mmns < ppk][-1]
-            stop = ppk
-            reps += [[start, stop]]
-        reps = np.atleast_2d(reps).astype(int)
+        try:
+            return np.array([obj]).astype(float).flatten()
+        except Exception as exc:
+            msg = "obj must be an Iterable of float or int."
+            raise ValueError(msg) from exc
 
-        # remove those reps having same start or stop
-        for i in np.arange(2):
-            reps = reps[np.unique(reps[:, i], return_index=True)[1]]
+    # * constructors
 
-        # get at most the 3 reps with the highest force output
-        idx = np.argsort([np.max(force[np.arange(i[0], i[1])]) for i in reps])
-        reps = reps[np.sort(idx[-3:]), :]
-
-        return reps
-
-    def _get_bounds(
+    def __init__(
         self,
-        xval0: float | int,
-        xval1: float | int,
+        time: Iterable[float | int],
+        position: Iterable[float | int],
+        load: Iterable[float | int],
+        coefs_1rm: tuple[float | int, float | int] = (0, 1),
     ):
-        """return the ticks for one axis defined by the make_figure method."""
-        magx1 = magnitude(xval0)
-        magx2 = magnitude(xval1)
-        magx = 10.0 ** np.min([magx1, magx2, 0])
-        xbounds = np.array([(xval0 / magx) // 5, ceil(xval1 / magx / 5)])
-        xbounds *= 5 * magx
-        return np.linspace(*xbounds, 6)  # type: ignore
+        # check the inputs
+        tarr = self._check_array(time)
+        parr = self._check_array(position)
+        larr = self._check_array(load)
+        msg = "'coefs_1rm' must be a tuple with 2 floats."
+        if not isinstance(coefs_1rm, (list, tuple)):
+            raise ValueError(msg)
+        for i in coefs_1rm:
+            if not isinstance(i, (float, int)):
+                raise ValueError(msg)
+        self._1rm_coefs = coefs_1rm
 
-    def make_figure(self):
-        """generate a figure representing the test data"""
-        # figure
-        fig, axs = plt.subplots(2, 1)
-        cmap = plt.get_cmap("tab10")  # type: ignore
-
-        # add data
-        axs[0].plot(
-            self.product.time_s,
-            self.product.position_m,
-            linewidth=1,
-            color=cmap(0),
+        # get the raw data
+        self._raw = pd.DataFrame(
+            data=[parr, larr],
+            index=pd.MultiIndex.from_tuples([("Position", "m"), ("Load", "kgf")]),
+            columns=pd.Index(tarr, name="Time (s)"),
+        ).T
+        self._raw = self._raw.iloc[1:-1]
+        self._raw.insert(
+            self._raw.shape[1],
+            ("Velocity", "m/s"),
+            sp.winter_derivative1(parr, tarr),
         )
-        axs[1].plot(
-            self.product.time_s,
-            self.product.load_kgf,
-            linewidth=1,
-            color=cmap(0),
-        )
-        reps = list(self.repetitions.values())
-        for i, rep in enumerate(reps):
-            time_arr: list[float] = rep.time_s  # type: ignore
-            pos_arr: list[float] = rep.position_m  # type: ignore
-            for_arr: list[float] = rep.load_kgf  # type: ignore
-            axs[0].plot(
-                time_arr,
-                pos_arr,
-                linewidth=2,
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-
-            axs[0].plot(
-                [time_arr[0], time_arr[0]],
-                [np.min(pos_arr), np.max(pos_arr)],
-                linewidth=0.5,
-                linestyle="dashed",
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-            axs[0].plot(
-                [time_arr[-1], time_arr[-1]],
-                [np.min(pos_arr), np.max(pos_arr)],
-                linewidth=0.5,
-                linestyle="dashed",
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-            axs[1].plot(
-                time_arr,
-                for_arr,
-                linewidth=2,
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-            axs[1].plot(
-                [time_arr[0], time_arr[0]],
-                [np.min(for_arr), np.max(for_arr)],
-                linewidth=0.5,
-                linestyle="dashed",
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-            axs[1].plot(
-                [time_arr[-1], time_arr[-1]],
-                [np.min(for_arr), np.max(for_arr)],
-                linewidth=0.5,
-                linestyle="dashed",
-                color=cmap(i + 1),
-                label=f"REP {int(i + 1):02d}",
-            )
-
-        # setup the layout
-        time0: float = reps[0].time_s[0]  # type: ignore
-        time1: float = reps[-1].time_s[-1]  # type: ignore
-        xticks = self._get_bounds(time0, time1)
-        for i, ax in enumerate(axs):
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            ax.set_xlim((xticks[0], xticks[-1]))
-            yticks = self._get_bounds(*ax.get_ylim())
-            ax.set_ylim((yticks[0], yticks[-1]))
-            ax.set_yticks(yticks)
-            ax.spines["left"].set_bounds((yticks[0], yticks[-1]))
-            if i == 0:
-                ax.spines["bottom"].set_visible(False)
-                ax.tick_params(bottom=False, labelbottom=False)
-                ax.set_ylabel("Position (m)")
-            else:
-                ax.spines["bottom"].set_bounds((xticks[0], xticks[-1]))
-                ax.set_xticks(xticks)
-                ax.set_xlabel("Time (s)")
-                ax.set_ylabel("Force (kgf)")
-
-        # render the legend
-        headers, labels = axs[0].get_legend_handles_labels()
-        headers = [headers[i] for i in np.arange(0, len(headers), 3)]
-        labels = [labels[i] for i in np.arange(0, len(labels), 3)]
-        plt.figlegend(
-            headers,
-            labels,
-            loc="upper right",
-            ncol=len(reps),
-            bbox_to_anchor=(1, 0.92),
-            frameon=False,
+        self._raw.insert(
+            self._raw.shape[1],
+            ("Power", "W"),
+            self._raw.Load.values.astype(float) * self._raw.Velocity.values,
         )
 
-        # apply a tight layout
-        plt.tight_layout(rect=(0, 0, 1, 0.93))
-
-        return fig, axs
-
-    def __init__(self, product: Product):
-        self._product = product
-        fsamp = float(1 / np.mean(np.diff(np.array(self._product.time_s))))
-        self._product.set_raw_position_rad(
-            butterworth_filt(
-                arr=np.array(self._product.raw_position_rad),
-                fcut=1,
-                fsamp=fsamp,
-                order=6,
-                ftype="lowpass",
-                phase_corrected=True,
-            ).tolist()  # type: ignore
-        )
-        self._product.set_raw_torque_nm(
-            butterworth_filt(
-                arr=np.array(self._product.raw_torque_nm),
-                fcut=1,
-                fsamp=fsamp,
-                order=6,
-                ftype="lowpass",
-                phase_corrected=True,
-            ).tolist()  # type: ignore
+        # process the data
+        fsamp = float(1 / np.mean(np.diff(tarr)))
+        pro = self.raw.apply(
+            sp.butterworth_filt,
+            fcut=1,
+            fsamp=fsamp,
+            order=6,
+            ftype="lowpass",
+            phase_corrected=True,
+            raw=True,
+            axis=0,
         )
 
-        # get the peak load and position (if possible)
-        self._repetitions = {}
-        if not self.product.is_empty():
-            time = np.array(self.product.time_s)
-            force = np.array(self.product.load_kgf)
-            position = np.array(self.product.position_m)
-            if force is not None:
-                reps = self._find_repetitions(time, force, position)
-                if reps is not None:
-                    for start, stop in reps:
-                        lbl = f"REP{len(self._repetitions) + 1}"
-                        val = self.product.slice(start, stop)
-                        self._repetitions[lbl] = val
-        reps = list(self.repetitions.values())
-        self._peak_load = np.nan
-        if len(reps) > 0:
-            pks = []
-            lcs = []
-            for dfr in reps:
-                frz: list[float] = dfr.load_kgf  # type: ignore
-                pos: list[float] = dfr.position_m  # type: ignore
-                loc = np.argmax(frz)
-                pks += [frz[loc]]
-                lcs += [pos[loc]]
-            loc = np.argmax(pks)
-            self._peak_load = float(pks[loc])
+        # get the repetitions
+        self._repetitions = []
+        varr = pro.values[:, 2].astype(float)
+        vzeros = sp.crossings(varr, 0)[0]
+        vpks = sp.find_peaks(varr, np.max(varr) * 0.5, int(round(fsamp)))
+        starts = []
+        for i in vpks[::2]:
+            idx = vzeros[vzeros < i]
+            if len(idx) > 0:
+                starts += [idx[-1]]
+        stops = []
+        for i in vpks[1::2]:
+            idx = vzeros[vzeros > i]
+            if len(idx) > 0:
+                stops += [idx[0]]
+        for start, stop in zip(starts, stops):
+            self._repetitions += [self.raw.iloc[start : (stop + 1), :]]
 
-            # adjust the size of the product data
-            tmr = self.product.time_s
-            rep0 = reps[0]
-            time0: list[float] = rep0.time_s  # type: ignore
-            start = time0[0] - (time0[-1] - time0[0])
-            start = max(tmr[0], start)  # type: ignore
-            rep1 = reps[-1]
-            time1: list[float] = rep1.time_s  # type: ignore
-            stop = time1[-1] + (time1[-1] - time1[0])
-            stop = min(tmr[-1], stop)  # type: ignore
-            init = np.where(np.array(self.product.time_s) <= start)[0][-1]
-            end = np.where(np.array(self.product.time_s) >= stop)[0][0]
-            self._product = self.product.slice(init, end)  # type: ignore
+    @classmethod
+    def from_biostrength_file(cls, file: str, product: BiostrengthProduct):
+        """
+        generate directly from raw file
+
+        Parameters
+        ----------
+        file : str
+            the path to the file returned from a Biostrength device
+
+        product: BiostrengthProduct
+            the product instance defining the product from which the file has
+            been generated.
+        """
+        # check the inputs
+        msg = "'file' must be the path to a valid .txt file"
+        if not isinstance(file, str) or not exists(file):
+            raise ValueError(msg)
+        if not issubclass(product, BiostrengthProduct):  # type: ignore
+            raise ValueError("'product' must be a valid Biostrength Product")
+
+        # read the data
+        try:
+            bio = product.from_file(file)
+        except Exception as exc:
+            msg = "An error occurred reading the provided file."
+            raise RuntimeError(msg) from exc
+
+        # generate the object instance
+        return cls(
+            time=np.array(bio.time_s),
+            position=np.array(bio.position_m),
+            load=np.array(bio.load_kgf),
+            coefs_1rm=bio.rm1_coefs[::-1],
+        )
