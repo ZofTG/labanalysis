@@ -954,8 +954,8 @@ def get_jump_features(jump: SquatJump, baseline: UprightStance):
             splits = muscle.split("_")
             lbl = [i[0].upper() + i[1:].lower() for i in splits]
             lbl = " ".join(lbl + ["Imbalance"])
-            val = syms_emg[muscle]["right"] - syms_emg[muscle]["left"]
-            val /= syms_emg[muscle]["right"] + syms_emg[muscle]["left"]
+            val = syms_emg[muscle]["Right"] - syms_emg[muscle]["Left"]
+            val /= syms_emg[muscle]["Right"] + syms_emg[muscle]["Left"]
             line[(lbl, "%")] = float(val.values * 100)
 
     return pd.Series(line)
