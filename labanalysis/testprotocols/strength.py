@@ -139,7 +139,7 @@ class Isokinetic1RMTest(LabTest):
         fig = make_subplots(
             rows=1,
             cols=3,
-            subplot_titles=["ISOKINETIC FORCE", "ESTIMATED 1RM"],
+            subplot_titles=["ISOKINETIC FORCE", "ESTIMATED<br>ISOTONIC 1RM"],
             specs=[[{"colspan": 2}, None, {}]],
             shared_xaxes=False,
             shared_yaxes=False,
@@ -344,17 +344,18 @@ class Isokinetic1RMTest(LabTest):
 
         # get the repetitions
         self._repetitions = []
-        varr = pro.values[:, 2].astype(float)
-        vzeros = sp.crossings(varr, 0)[0]
-        vpks = sp.find_peaks(varr, np.max(varr) * 0.5, int(round(fsamp)))
+        parr, farr = pro.values[:, :2].T.astype(float)
+        larr = parr * farr
+        lpks = sp.find_peaks(larr, np.max(larr) * 0.5, int(round(fsamp)))
+        l50 = np.max(larr) * 0.33
+        lzrs = sp.find_peaks(-larr, -l50)
         starts = []
-        for i in vpks[::2]:
-            idx = vzeros[vzeros < i]
+        stops = []
+        for i in lpks:
+            idx = lzrs[lzrs < i]
             if len(idx) > 0:
                 starts += [idx[-1]]
-        stops = []
-        for i in vpks[1::2]:
-            idx = vzeros[vzeros > i]
+            idx = lzrs[lzrs > i]
             if len(idx) > 0:
                 stops += [idx[0]]
         for start, stop in zip(starts, stops):

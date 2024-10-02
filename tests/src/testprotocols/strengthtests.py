@@ -21,9 +21,13 @@ __all__ = ["test_strength"]
 def test_isokinetic_1rm():
     """test the isokinetic 1RM test"""
     print("\nTEST ISOKINETIC 1RM")
-    file = join(dirname(__file__), "isokinetic_1rm_data", "isok_leg_press.txt")
-    test = Isokinetic1RMTest.from_biostrength_file(file, labio.LegPressREV)  # type: ignore
-    test.summary_plot.show()
+    files = get_files(join(dirname(__file__), "isokinetic_1rm_data"), ".txt")
+    for file in files:
+        test = Isokinetic1RMTest.from_biostrength_file(file, labio.LegPressREV)  # type: ignore
+        fig = test.summary_plot
+        fig.update_layout(title=file)
+        fig.show()
+    print("TEST ISOKINETIC 1RM COMPLETED")
 
 
 def test_strength():
