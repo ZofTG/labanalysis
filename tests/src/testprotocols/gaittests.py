@@ -8,7 +8,7 @@ from os.path import dirname, join
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
 
-from labanalysis import *
+from src.labanalysis import *
 
 __all__ = ["test_gaits"]
 

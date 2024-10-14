@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+
+from ...constants import G
 
 from .squat_jump import get_jump_features
 
@@ -485,183 +486,193 @@ class SideJumpTest(LabTest):
     @property
     def results_table(self):
         """Return a table containing the test results."""
+        raw = []
+        for i, jump in enumerate(self.left_jumps):
+            dfj = self._get_jump_results(jump)
+            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
+            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
+            raw += [dfj]
+        for i, jump in enumerate(self.right_jumps):
+            dfj = self._get_jump_results(jump)
+            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
+            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
+            raw += [dfj]
 
-        # get the required metrics from each jump
-        res = []
-        base = self.baseline
-        for jump in self.left_jumps + self.right_jumps:
-            dfr = pd.DataFrame(get_jump_features(jump, base)).T
-            dfr = dfr[[i for i in dfr.columns if not i[0].endswith("Imbalance")]]
-            dfr.insert(0, "SIDE", np.tile(jump.side, dfr.shape[0]))
-            res += [dfr]
-
-        # convert the results to table
-        table = pd.concat(res, ignore_index=True)
-        table.index = pd.Index([f"Jump {i + 1}" for i in range(table.shape[0])])
-
-        return table
+        return pd.concat(raw, ignore_index=True)
 
     @property
     def summary_table(self):
         """Return a table with summary statistics about the test."""
-        # generate a long format table
-        res = self.results_table
-        res.insert(0, "JUMP", res.index)
-        tbl = []
-        for i in res.columns[2:]:
-            dfr = res[[("JUMP", ""), ("SIDE", ""), i]].copy()
-            dfr.columns = pd.Index(["JUMP", "SIDE", "VALUE"])
-            dfr.insert(0, "UNIT", np.tile(i[1], dfr.shape[0]))
-            dfr.insert(0, "METRIC", np.tile(i[0], dfr.shape[0]))
-            tbl += [dfr]
-        tbl = pd.concat(tbl, ignore_index=True)
+
+        # get the required metrics from each jump
+        out = []
+        for i, jump in enumerate(self.left_jumps):
+            new = get_jump_features(jump, self.baseline)
+            new = new.loc[new.Unit != "%"]
+            new.insert(0, "Jump", np.tile(i + 1, new.shape[0]))
+            new.insert(0, "Side", np.tile(jump.side, new.shape[0]))
+            out += [new]
+        for i, jump in enumerate(self.right_jumps):
+            new = get_jump_features(jump, self.baseline)
+            new = new.loc[new.Unit != "%"]
+            new.insert(0, "Jump", np.tile(i + 1, new.shape[0]))
+            new.insert(0, "Side", np.tile(jump.side, new.shape[0]))
+            out += [new]
+        res = pd.concat(out, ignore_index=True)
 
         # get the mean and std stats
-        grp = tbl.groupby(["METRIC", "UNIT", "SIDE"])
-        ref = grp.describe([])["VALUE"][["mean", "std"]]
-        ref.columns = pd.Index(["MEAN", "STD"])
+        grp = res.groupby(["Parameter", "Side", "Unit"])
+        ref = grp.describe([])["Value"][["mean", "std"]]
+        ref.columns = pd.Index(["Mean", "Std"])
 
-        # add the values from the best jump on each side
-        for side in res.SIDE.unique():
-            val = res.loc[res.SIDE == side]
-            idx = np.argmax(val.Elevation.values.astype(float).flatten())
-            best = str(val.JUMP.values[idx])
-            vals = res.loc[[i for i in res.JUMP if i == best]]
-            for i, (metric, unit) in enumerate(vals.columns[2:]):
-                ref_idx = (metric, unit, side)
-                ref.loc[ref_idx, "BEST"] = vals[(metric, unit)].values
-        ref = pd.concat([ref.index.to_frame(), ref], axis=1)
-        ref = ref.reset_index(drop=True)
+        # add the values from the best jump for each side
+        for side, dfr in res.groupby("Side"):
+            edf = dfr.loc[dfr.Parameter == "Elevation"]
+            hight = edf.Value.values.astype(float).flatten()
+            best_jump = edf.iloc[np.argmax(hight)].Jump  # type: ignore
+            best = res.loc[(res.Jump == best_jump) & (res.Side == side)]
+            best = best.drop("Jump", axis=1)
+            index = pd.MultiIndex.from_frame(best[["Parameter", "Side", "Unit"]])
+            ref.loc[index, "Best"] = best.Value.values
 
-        return ref
+        return pd.DataFrame(ref)
 
     @property
-    def summary_plot(self):
-        """return a plotly figurewidget highlighting the test results"""
+    def results_plot(self):
+        """return a plotly figurewidget highlighting the resulting data"""
 
-        # get the summary results in long format
-        raw = self.summary_table
-        best = raw[["METRIC", "UNIT", "SIDE", "BEST"]].copy()
-        best.columns = best.columns.map(lambda x: x.replace("BEST", "VALUE"))
-        best.insert(0, "TYPE", np.tile("BEST JUMP", best.shape[0]))
-        mean = raw[["METRIC", "UNIT", "SIDE", "MEAN", "STD"]].copy()
-        mean.columns = pd.Index(["METRIC", "UNIT", "SIDE", "VALUE", "ERROR"])
-        mean.insert(0, "TYPE", np.tile("MEAN PERFORMANCE", mean.shape[0]))
-        long = pd.concat([best, mean], ignore_index=True)
+        # get the results table
+        res = self.results_table
+        cols = [("MARKER", "S2", "COORDINATE", "Y", "m")]
+        cols += [("FORCE_PLATFORM", "fRes", "FORCE", "Y", "N")]
+        raw = []
+        jumps = res.Jump.values.astype(str).flatten()
+        time = res.Time.values.astype(float).flatten()
+        phase = res.Phase.values.astype(str).flatten()
+        sides = res.Side.values.astype(str).flatten()
+        for col in cols:
+            typ = col[1] if col[0] == "MARKER" else "Force"
+            typ = typ.split("_")[0].capitalize()
+            val = res[col].values.astype(float).flatten()
+            if col[-1] == "N":
+                unit = "kgf"
+                val = val / G
+            else:
+                unit = "cm"
+                val = val * 1e2
+            new = {
+                "Type": np.tile(typ, len(val)),
+                "Unit": np.tile(unit, len(val)),
+                "Value": val,
+                "Time": time,
+                "Jump": jumps,
+                "Phase": phase,
+                "Side": sides,
+            }
+            raw += [pd.DataFrame(new)]
+        raw = pd.concat(raw, ignore_index=True)
 
-        # generate the figure and the subplot grid
-        feats = np.unique(long.METRIC.values.astype(str)).tolist()
-        fig = make_subplots(
-            rows=2,
-            cols=len(feats),
-            subplot_titles=feats,
-            shared_xaxes=False,
-            shared_yaxes=False,
-            horizontal_spacing=0.1,
-            vertical_spacing=0.15,
-            row_titles=["PERFORMANCE", "SYMMETRY"],
-            column_titles=None,
-            x_title=None,
-            y_title=None,
-        )
-
-        # plot the jump properties
-        for i, param in enumerate(feats):
-            dfr = long.loc[long.METRIC == param]
-            dfr.insert(0, "TEXT", [f"{i:0.1f}" for i in dfr.VALUE])
-            mean = dfr.loc[dfr.TYPE == "MEAN"]
-            base = min(dfr.VALUE.min(), (mean.VALUE - mean.ERROR.values).min())
-            base = float(base * 0.9)
-            dfr.insert(0, "BASE", np.tile(base, dfr.shape[0]))
-            maxval = max(dfr.VALUE.max(), (mean.VALUE + mean.ERROR.values).max())
-            maxval = float(maxval * 1.1)
-            dfr.loc[dfr.index, "VALUE"] = dfr.loc[dfr.index, "VALUE"] - base
-            fig0 = px.bar(
-                data_frame=dfr,
-                x="TYPE",
-                y="VALUE",
-                text="TEXT",
-                error_y="ERROR",
-                color="SIDE",
-                barmode="group",
-                base="BASE",
-            )
-            fig0.update_traces(
-                showlegend=bool(i == 0),
-                legendgroup="SIDE",
-                legendgrouptitle_text="SIDE",
-            )
-            for trace in fig0.data:
-                fig.add_trace(row=1, col=i + 1, trace=trace)
-            fig.update_yaxes(
-                row=1,
-                col=i + 1,
-                title=dfr.UNIT.values.astype(str).flatten()[0],
-                range=[base, maxval],
-            )
-
-        # get the symmetries
-        syms = []
-        for grp, dfa in long.groupby(["METRIC", "TYPE"]):
-            idx_sx = dfa.SIDE == "Left"
-            idx_dx = dfa.SIDE == "Right"
-            sx = float(dfa.loc[idx_sx].VALUE.values[0])
-            dx = float(dfa.loc[idx_dx].VALUE.values[0])
-            total = sx + dx
-            delta = 100 * (dx - sx) / total
-            dfa.loc[idx_sx, "VALUE"] = 50 - delta
-            dfa.loc[idx_dx, "VALUE"] = 50 + delta
-            syms += [dfa[["METRIC", "TYPE", "SIDE", "VALUE"]].copy()]
-        syms = pd.concat(syms, ignore_index=True)
-        syms.insert(0, "TEXT", [f"{i:0.1f}" for i in syms.VALUE])
-        base = float(syms.VALUE.min() * 0.9)
-        maxv = float(syms.VALUE.max() * 1.1)
-        syms.insert(0, "BASE", np.tile(base, syms.shape[0]))
-        syms.loc[syms.index, "VALUE"] = syms.VALUE - syms.BASE.values
-        for i, feat in enumerate(feats):
-            dfr = syms.loc[syms.METRIC == feat]
-            fig0 = px.bar(
-                data_frame=dfr,
-                x="TYPE",
-                y="VALUE",
-                text="TEXT",
-                color="SIDE",
-                barmode="group",
-                base="BASE",
-            )
-            fig0.update_traces(showlegend=False)
-            for trace in fig0.data:
-                fig.add_trace(row=2, col=i + 1, trace=trace)
-        fig.update_yaxes(row=2, visible=False, range=[base, maxv])
-        fig.update_yaxes(row=2, col=1, visible=True, title="%")
-
-        # add mean symmetry line
-        fig.add_hline(
-            y=50,
-            line_dash="dash",
-            line_width=2,
-            line_color=px.colors.qualitative.Plotly[2],
-            opacity=0.5,
-            row=2,  # type: ignore
-            showlegend=False,
-        )
-
-        # update the layout and return
-        fig.update_layout(
-            legend={
-                "x": 1,
-                "y": 0.4,
-                "xref": "container",
-                "yref": "container",
-            },
+        # generate the figure
+        fig = px.line(
+            data_frame=raw,
+            x="Time",
+            y="Value",
+            color="Jump",
+            line_dash="Phase",
+            facet_row="Type",
+            facet_col="Side",
             template="simple_white",
             height=600,
             width=1200,
         )
 
+        # update the layout and return
+        fig.update_traces(opacity=0.5)
+        fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[-1]))
+        fig.update_yaxes(title="", matches=None)
+        fig.update_yaxes(showticklabels=False, col=2, visible=False)
+        fig.update_xaxes(showticklabels=False, row=2, visible=False)
+        for i, unit in enumerate(raw.Unit.unique()[::-1]):
+            fig.update_yaxes(row=i + 1, col=1, title=unit)
+        cm_range = raw.loc[raw.Unit == "cm"].Value.values.astype(float).flatten()
+        cm_range = [np.min(cm_range), np.max(cm_range)]
+        fig.update_yaxes(row=2, range=cm_range)
+        kgf_range = raw.loc[raw.Unit == "kgf"].Value.values.astype(float).flatten()
+        kgf_range = [np.min(kgf_range), np.max(kgf_range)]
+        fig.update_yaxes(row=1, range=kgf_range)
+
+        return go.FigureWidget(fig)
+
+    @property
+    def summary_plot(self):
+        """return a plotly figurewidget highlighting the test summary"""
+
+        # get the summary results in long format
+        raw = self.summary_table
+        best = raw[["Best"]].copy()
+        best.columns = pd.Index(["Value"])
+        best.insert(0, "Type", np.tile("Best", best.shape[0]))
+        mean = raw[["Mean", "Std"]].copy()
+        mean.columns = pd.Index(["Value", "Error"])
+        mean.insert(0, "Type", np.tile("Mean", mean.shape[0]))
+        long = pd.concat([best, mean])
+        long = pd.concat([long.index.to_frame(), long], axis=1)
+        vals = long.reset_index(drop=True)
+
+        # prepare the data for being rendered
+        vals.insert(0, "Text", vals.Value.map(lambda x: f"{x:0.2f}"))
+        for parameter, dfr in vals.groupby("Parameter"):
+            base = min(np.min(dfr.Value), np.nanmin(dfr.Value - dfr.Error)) * 0.9
+            vals.loc[dfr.index, "Base"] = base
+        vals.loc[vals.index, "Value"] -= vals.Base
+
+        # generate the figure and the subplot grid
+        fig = px.bar(
+            data_frame=vals,
+            x="Type",
+            y="Value",
+            error_y="Error",
+            color="Side",
+            text="Text",
+            base="Base",
+            facet_col="Parameter",
+            facet_col_spacing=0.1,
+            barmode="group",
+            template="simple_white",
+            height=300,
+            width=1200,
+        )
+
+        # update the layout
+        fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[1]))
+        fig.update_traces(error_y_color="rgba(0, 0, 0, 0.3)")
+        fig.update_xaxes(title="")
+        fig.update_yaxes(matches=None, showticklabels=True)
+        for i, (parameter, dfr) in enumerate(vals.groupby("Parameter")):
+            fig.update_yaxes(col=i + 1, title=dfr.Unit.values[0])
+        fig.update_layout(template="simple_white", height=600, width=1200)
+
         return go.FigureWidget(fig)
 
     # * methods
+
+    def _get_jump_results(self, jump: SideJump):
+        """private method used to obtain jump results"""
+        col = ("Phase", "", "", "", "")
+        dfe = jump.eccentric_phase.to_dataframe().dropna()
+        dfe.insert(0, col, np.tile("Eccentric", dfe.shape[0]))
+        dfc = jump.concentric_phase.to_dataframe().dropna()
+        dfc.insert(0, col, np.tile("Concentric", dfc.shape[0]))
+        dff = jump.flight_phase.to_dataframe().dropna()
+        dff.insert(0, col, np.tile("Flight", dff.shape[0]))
+        dfl = jump.loading_response_phase.to_dataframe().dropna()
+        dfl.insert(0, col, np.tile("Loading Response", dfl.shape[0]))
+        dfj = pd.concat([dfe, dfc, dff, dfl])
+        time = dfj.index.to_numpy() - dfj.index[0]
+        dfj.insert(0, ("Time", "", "", "", ""), time)
+        dfj.reset_index(inplace=True, drop=True)
+        dfj.insert(0, ("Side", "", "", "", ""), np.tile(jump.side, dfj.shape[0]))
+        return dfj
 
     def _check_valid_inputs(self):
         # check the baseline

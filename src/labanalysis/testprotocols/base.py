@@ -7,20 +7,23 @@ Participant
     an instance defining the general parameters of one subject during a test.
 
 LabTest
-    an abstract class containing the attributes:
-        - results_table
-        - summary_table
-        _ summary_plot
+    abstract class defining the general methods expected from a test
+
+TestBattery
+    class allowing the analysis of a set of tests
 """
 
 #! IMPORTS
 
 
-from abc import abstractmethod
-from datetime import datetime, date
-import pandas as pd
+from datetime import date, datetime
+from typing import Protocol, runtime_checkable
 
-__all__ = ["LabTest", "Participant"]
+import numpy as np
+import pandas as pd
+from plotly.graph_objects import FigureWidget
+
+__all__ = ["LabTest", "TestBattery", "Participant"]
 
 
 #! CLASSES
@@ -356,30 +359,113 @@ class Participant:
         return self.dataframe.__str__()
 
 
-class LabTest:
+@runtime_checkable
+class LabTest(Protocol):
     """
     abstract class defining the general methods expected from a test
 
     Attributes
     -------
     summary_plot
-        return a matplotlib figure highlighting the test' results.
+        return a plotly figure widget highlighting the test' results.
+
+    results_plot
+        return a plotly figure widget summarizing the test results.
 
     summary_table
         return a pandas dataframe containing the summary data.
+
+    results_table
+        return a pandas dataframe containing the test results.
     """
 
     @property
-    @abstractmethod
-    def summary_plot(self):
-        return NotImplementedError
+    def summary_plot(self) -> FigureWidget: ...
 
     @property
-    @abstractmethod
+    def summary_table(self) -> pd.DataFrame: ...
+
+    @property
+    def results_table(self) -> pd.DataFrame: ...
+
+    @property
+    def results_plot(self) -> FigureWidget: ...
+
+
+class TestBattery:
+    """
+    class allowing to deal with multiple lab tests
+
+    Attributes
+    -------
+    results_plots
+        return a plotly figure widget showing the test' results.
+
+    summary_plots
+        return a plotly figure widget highlighting the tests results.
+
+    summary_table
+        return a pandas dataframe containing the summary data.
+
+    results_table
+        return a pandas dataframe containing the test results.
+
+    tests
+        the list of tests being part of the battery.
+    """
+
+    # * class variables
+
+    _tests: list[LabTest]
+
+    # * attributes
+
+    @property
+    def tests(self):
+        """return the list of tests being part of the test battery"""
+        return self._tests
+
+    @property
+    def summary_plots(self):
+        """return the summary plots from each test as dict"""
+        return {type(test).__name__: test.summary_plot for test in self.tests}
+
+    @property
     def summary_table(self):
-        return NotImplementedError
+        """return a table with summary statistics from each test"""
+        # get the required metrics from each jump
+        out = []
+        for test in self.tests:
+            table = test.summary_table
+            table = pd.concat([table.index.to_frame(), table], axis=1)
+            table.insert(0, "Test", np.tile(type(test).__name__, table.shape[0]))
+            out += [table]
+        return pd.concat(out, ignore_index=True)
 
     @property
-    @abstractmethod
     def results_table(self):
-        return NotImplementedError
+        """return a dataframe containing the results of each test"""
+        out = []
+        for test in self.tests:
+            test_type = type(test).__name__
+            tab = test.results_table
+            tab.insert(0, "Test", np.tile(test_type, tab.shape[0]))
+            out += [tab]
+        return pd.concat(out, ignore_index=True)
+
+    @property
+    def results_plots(self):
+        """return the results plots from each test"""
+        return {type(test).__name__: test.results_plot for test in self.tests}
+
+    # * constructor
+
+    def __init__(self, *tests: LabTest):
+        # check the inputs
+        msg = "'tests' must be LabTest subclassed objects."
+        for test in tests:
+            if not isinstance(test, LabTest):
+                raise ValueError(msg)
+
+        # store the tests
+        self._tests = list(tests)

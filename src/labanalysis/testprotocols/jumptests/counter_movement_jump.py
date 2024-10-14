@@ -4,13 +4,12 @@
 
 
 from typing import Iterable
-
 import numpy as np
 import pandas as pd
 
-from ... import signalprocessing as sp
-from ..frames import StateFrame
 from ..posturaltests.upright import UprightStance
+
+from ... import signalprocessing as sp
 from .squat_jump import SquatJump, SquatJumpTest
 
 __all__ = ["CounterMovementJump", "CounterMovementJumpTest"]
@@ -145,14 +144,20 @@ class CounterMovementJump(SquatJump):
         t_end = t_end[t_end < self.concentric_phase.to_dataframe().index[0]]
         t_end = float(round(t_end[-1], 3))
 
-        # get the vertical S2 velocity
+        # get the last peak in vertical position before the concentric phase
         s2y = self.markers.S2.Y.values.astype(float).flatten()
         s2t = self.markers.index.to_numpy()
-        s2v = sp.winter_derivative1(s2y, s2t)
-        s2y = s2y[1:-1]
-        s2t = s2t[1:-1]
-
+        """
+        fsamp = float(1 / np.mean(np.diff(s2t)))
+        s2f = sp.butterworth_filt(s2y, 1, fsamp, 6, "lowpass", True)
+        pks = s2t[sp.find_peaks(s2f)]
+        if len(pks) == 0:
+            raise RuntimeError("No eccentric phase has been found.")
+        t_start = float(pks[-1])
+        """
         # look at the last positive vertical speed value occuring before t_end
+        s2v = sp.winter_derivative1(s2y)
+        s2t = s2t[1:-1]
         batches = sp.continuous_batches(s2v[s2t < t_end] <= 0)
         if len(batches) == 0:
             raise RuntimeError("No eccentric phase has been found.")
@@ -170,12 +175,6 @@ class CounterMovementJump(SquatJump):
 
         # get the time corresponding phase
         return self.slice(t_start, t_end)
-
-    # * methods
-
-    def copy(self):
-        """create a copy of the object"""
-        return super().from_stateframe(self)
 
     # * constructors
 
@@ -275,117 +274,6 @@ class CounterMovementJump(SquatJump):
             emgs_rms_win=emgs_rms_win,
         )
 
-    @classmethod
-    def from_tdf_file(
-        cls,
-        file: str,
-        process_data: bool = True,
-        ignore_index: bool = True,
-        markers_fcut: int | float | None = 6,
-        forces_fcut: int | float | None = 100,
-        emgs_fband: tuple[int | float, int | float] | None = (30, 400),
-        emgs_rms_win: int | float | None = 0.2,
-    ):
-        """
-        generate a CounterMovementJump instance from a .tdf file
-
-        Parameters
-        ----------
-        file : str
-            a valid .tdf file containing (tracked) markers, force platforms and
-            (optionally) EMG data
-
-
-        process_data: bool = True
-            if True, process the data according to the options provided below
-
-        ignore_index: bool = True
-            if True the reduced data are reindexed such as they start from zero
-
-        inplace: bool = True
-            if True, the operations are made directly in the current object.
-            Otherwise a copy is created and returned at the end of the
-            operations
-
-        markers_fcut:  int | float | None = 6
-            cut frequency of the lowpass, 4th order, phase-corrected,
-            Butterworth filter (in Hz) used to smooth the provided coordinates.
-
-        forces_fcut: int | float | None = 100
-            cut frequency of the lowpass, 4th order, phase-corrected,
-            Butterworth filter (in Hz) used to smooth the provided force and
-            torque data.
-
-        emgs_fband: tuple[int | float, int | float] | None = (30, 400)
-            frequency limits of the bandpass, 4th order, phase-corrected,
-            Butterworth filter (in Hz) used to smooth the provided EMG data.
-
-        emgs_rms_win: int | float | None = 0.2
-            the Root Mean Square window (in seconds) used to create the EMG
-            envelopes.
-
-        Returns
-        -------
-        frame: CounterMovementJump
-            a CounterMovement instance of the data contained in the .tdf file.
-
-        Processing procedure
-        --------------------
-
-        Markers
-            1. missing values at the beginning and end of the data are removed
-            2. missing values in the middle of the trial are replaced by cubic
-            spline interpolation
-            3. the data are low-pass filtered by means of a lowpass, Butterworth
-            filter with the entered marker options
-
-        Force Platforms
-            1. the data in between the start and end of the marker data are
-            retained.
-            2. missing values in the middle of the data are replaced by zeros
-            3. Force and Torque data are low-pass filtered by means of a
-            lowpass, Butterworth filter with the entered force options.
-            4. Force vector origin's coordinates are low-pass filtered by means
-            of a lowpass, Butterworth filter with the entered marker options.
-
-        EMGs (optional)
-            1. the data in between the start and end of the markers are
-            retained.
-            2. the signals are bandpass filtered with the provided emg options
-            3. the root-mean square filter with the given time window is
-            applied to get the envelope of the signals.
-
-        All
-            1. if 'ignore_index=True' then the time indices of all components is
-            adjusted to begin with zero.
-        """
-        return super().from_tdf_file(
-            file=file,
-            process_data=process_data,
-            ignore_index=ignore_index,
-            markers_fcut=markers_fcut,
-            forces_fcut=forces_fcut,
-            emgs_fband=emgs_fband,
-            emgs_rms_win=emgs_rms_win,
-        )
-
-    @classmethod
-    def from_stateframe(cls, obj: StateFrame):
-        """
-        generate a CounterMovementJump instance from a StateFrame object
-
-        Parameters
-        ----------
-        obj: StateFrame
-            a StateFrame instance
-
-        Returns
-        -------
-        frame: CounterMovementJump
-            a CounterMovementJump instance.
-        """
-        return super().from_stateframe(obj)
-
 
 class CounterMovementJumpTest(SquatJumpTest):
     """
@@ -421,6 +309,36 @@ class CounterMovementJumpTest(SquatJumpTest):
     # * class variables
 
     _jumps: list[CounterMovementJump]
+
+    # * attributes
+
+    @property
+    def jumps(self):
+        """return the jumps contained in the test"""
+        return self._jumps
+
+    @property
+    def results_table(self):
+        """Return a table containing the test results."""
+        raw = super().results_table
+        new = []
+        phase_col = ("Phase", "", "", "", "")
+        time_col = ("Time", "", "", "", "")
+        jump_col = ("Jump", "", "", "", "")
+        for i, jump in enumerate(self.jumps):
+            dfe = jump.eccentric_phase.to_dataframe().dropna()
+            dfe.insert(0, phase_col, np.tile("Eccentric", dfe.shape[0]))
+            jmp = f"Jump {i + 1}"
+            lbl = np.tile(jmp, dfe.shape[0])
+            dfe.insert(0, jump_col, lbl)
+            time = dfe.index.to_numpy() - dfe.index[0]
+            dfe.insert(0, time_col, time)
+            dfr = raw.loc[raw.Jump == jmp]
+            offset = round(float(np.mean(np.diff(time)) + time[-1]), 3)
+            dfr.loc[dfr.index, time_col] += offset  # type: ignore
+            new += [dfe, dfr]
+        new = pd.concat(new, ignore_index=True)
+        return new.sort_values(("Time", "", "", "", ""))
 
     # * methods
 

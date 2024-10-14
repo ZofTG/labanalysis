@@ -12,7 +12,7 @@ import numpy as np
 
 sys.path += [dirname(dirname(dirname(__file__)))]
 
-from labanalysis import *
+from src.labanalysis import *
 
 __all__ = ["test_regression"]
 
