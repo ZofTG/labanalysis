@@ -24,9 +24,12 @@ def test_isokinetic_1rm():
     files = get_files(join(dirname(__file__), "isokinetic_1rm_data"), ".txt")
     for file in files:
         test = Isokinetic1RMTest.from_biostrength_file(file, labio.LegPressREV)  # type: ignore
-        fig = test.summary_plot
-        fig.update_layout(title=file)
-        fig.show()
+        fig1 = test.results_plot
+        fig1.update_layout(title=file + " (RESULTS PLOT)")
+        fig1.show()
+        fig2 = test.summary_plot
+        fig2.update_layout(title=file + " (SUMMARY PLOT)")
+        fig2.show()
     print("TEST ISOKINETIC 1RM COMPLETED")
 
 

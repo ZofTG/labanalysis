@@ -113,7 +113,7 @@ class Isokinetic1RMTest(LabTest):
     @property
     def estimated_1rm(self):
         """return the predicted 1RM"""
-        b0, b1 = self._1rm_coefs
+        b1, b0 = self._1rm_coefs
         return self.peak_load * b1 + b0
 
     @property
@@ -133,7 +133,7 @@ class Isokinetic1RMTest(LabTest):
 
     @property
     def summary_plot(self):
-        """return a plotly figurewidget highlighting the test results"""
+        """return a plotly figurewidget summarizing the test outputs"""
 
         # generate the figure and the subplot grid
         fig = make_subplots(
@@ -180,7 +180,7 @@ class Isokinetic1RMTest(LabTest):
         df_1rm = pd.DataFrame(
             {
                 "1RM": loads - base,
-                "TEXT": [f"{i:0.0f}" for i in loads],
+                "TEXT": [f"{i:0.1f}" for i in loads],
                 "REPETITION": [f"REP {i + 1}" for i in np.arange(len(loads))],
                 "BASE": np.tile(base, len(loads)),
             }
@@ -205,11 +205,36 @@ class Isokinetic1RMTest(LabTest):
 
         # update the layout and return
         fig.update_yaxes(title="kg")
+        fig.update_yaxes(col=1, range=[raw.Load.min() * 0.9, raw.Load.max() * 1.1])
         fig.update_xaxes(row=1, col=1, title="Repetition time (s)")
         fig.update_layout(
             template="simple_white",
             height=400,
             width=800,
+        )
+
+        return go.FigureWidget(fig)
+
+    @property
+    def results_plot(self):
+        """return a plotly figurewidget highlighting the test results"""
+
+        # prepare the data
+        tab = self.results_table.copy()
+        tab.insert(0, ("Time", "s"), tab.index.to_numpy())
+        tab.reset_index(inplace=True, drop=True)
+        tab.columns = pd.Index([i[0] for i in tab.columns])
+
+        # generate the figure and the subplot grid
+        fig = px.line(
+            data_frame=tab,
+            x="Time",
+            y="Load",
+            color="REPETITION",
+            line_dash="REPETITION",
+            template="simple_white",
+            width=1200,
+            height=600,
         )
 
         return go.FigureWidget(fig)
@@ -234,7 +259,7 @@ class Isokinetic1RMTest(LabTest):
                 )
             ),
         )
-        b0, b1 = self.coefs_1rm
+        b1, b0 = self.coefs_1rm
         out = [des]
         for grp, dfr in des.loc[des.PARAMETER == "Load"].groupby(["REPETITION"]):
             line = {
@@ -317,38 +342,23 @@ class Isokinetic1RMTest(LabTest):
             index=pd.MultiIndex.from_tuples([("Position", "m"), ("Load", "kgf")]),
             columns=pd.Index(tarr, name="Time (s)"),
         ).T
-        self._raw = self._raw.iloc[1:-1]
-        self._raw.insert(
-            self._raw.shape[1],
-            ("Velocity", "m/s"),
-            sp.winter_derivative1(parr, tarr),
-        )
-        self._raw.insert(
-            self._raw.shape[1],
-            ("Power", "W"),
-            self._raw.Load.values.astype(float) * self._raw.Velocity.values,
-        )
 
-        # process the data
+        # get the repetitions
+        self._repetitions = []
+        parr, farr = self._raw.values.T.astype(float)
         fsamp = float(1 / np.mean(np.diff(tarr)))
-        pro = self.raw.apply(
-            sp.butterworth_filt,
-            fcut=1,
+        larr = sp.butterworth_filt(
+            arr=parr * farr,
+            fcut=0.5,
             fsamp=fsamp,
             order=6,
             ftype="lowpass",
             phase_corrected=True,
-            raw=True,
-            axis=0,
         )
-
-        # get the repetitions
-        self._repetitions = []
-        parr, farr = pro.values[:, :2].T.astype(float)
-        larr = parr * farr
-        lpks = sp.find_peaks(larr, np.max(larr) * 0.5, int(round(fsamp)))
-        l50 = np.max(larr) * 0.33
-        lzrs = sp.find_peaks(-larr, -l50)
+        dsamp = int(round(3 * fsamp))
+        lpks = sp.find_peaks(larr, np.max(larr) * 0.5, dsamp)
+        l50 = np.max(larr) * 0.5
+        lzrs = sp.find_peaks(-larr, -l50, dsamp)
         starts = []
         stops = []
         for i in lpks:
@@ -391,8 +401,8 @@ class Isokinetic1RMTest(LabTest):
 
         # generate the object instance
         return cls(
-            time=np.array(bio.time_s),
-            position=np.array(bio.position_m),
-            load=np.array(bio.load_kgf),
-            coefs_1rm=bio.rm1_coefs[::-1],
+            time=bio.time_s,
+            position=bio.position_lever_m,
+            load=bio.load_lever_kgf,
+            coefs_1rm=(bio.rm1_coefs[0], bio.rm1_coefs[1]),
         )
