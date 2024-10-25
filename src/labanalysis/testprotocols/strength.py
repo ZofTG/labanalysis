@@ -344,32 +344,28 @@ class Isokinetic1RMTest(LabTest):
         ).T
 
         # get the repetitions
-        self._repetitions = []
         parr, farr = self._raw.values.T.astype(float)
+        if abs(np.min(parr)) > abs(np.max(parr)):
+            parr *= -1
+        parr -= parr[0]
+        varr = sp.winter_derivative1(parr, tarr)
+        farr = farr[1:-1]
+        parr = farr * varr
         fsamp = float(1 / np.mean(np.diff(tarr)))
-        larr = sp.butterworth_filt(
-            arr=parr * farr,
-            fcut=0.5,
+        parr = sp.butterworth_filt(
+            arr=parr,
+            fcut=1,
             fsamp=fsamp,
             order=6,
             ftype="lowpass",
             phase_corrected=True,
         )
-        dsamp = int(round(3 * fsamp))
-        lpks = sp.find_peaks(larr, np.max(larr) * 0.5, dsamp)
-        l50 = np.max(larr) * 0.5
-        lzrs = sp.find_peaks(-larr, -l50, dsamp)
-        starts = []
-        stops = []
-        for i in lpks:
-            idx = lzrs[lzrs < i]
-            if len(idx) > 0:
-                starts += [idx[-1]]
-            idx = lzrs[lzrs > i]
-            if len(idx) > 0:
-                stops += [idx[0]]
-        for start, stop in zip(starts, stops):
-            self._repetitions += [self.raw.iloc[start : (stop + 1), :]]
+        batches = sp.continuous_batches(parr > 0.02 * np.max(parr))
+        if len(batches) == 0:
+            raise RuntimeError("No repetitions have been found")
+        samples = [len(i) for i in batches]
+        batches = [batches[i] for i in np.sort(np.argsort(samples)[::-1][:3])]
+        self._repetitions = [pd.DataFrame(self.raw.iloc[b, :]) for b in batches]
 
     @classmethod
     def from_biostrength_file(cls, file: str, product: BiostrengthProduct):
