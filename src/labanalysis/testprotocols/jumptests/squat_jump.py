@@ -221,16 +221,10 @@ class SquatJump(StateFrame):
         if len(batch) < 2:
             raise RuntimeError(msg)
 
-        # get the local minima in grfy
-        mins = sp.find_peaks(-grfy)
-
-        # look at the first local minima occurring after the start of the
-        # detected batch
-        time_start = float(round(grft[mins[mins > batch[0]]][0], 3))
-
-        # look at the last local minima occurring befor the end of the
-        # detected batch
-        time_stop = float(round(grft[mins[mins < batch[-1]]][-1], 3))
+        # # get the time samples corresponding to the start and end of each
+        # batch
+        time_start = float(np.round(grft[batch[0]], 3))
+        time_stop = float(np.round(grft[batch[-1]], 3))
 
         # return a slice of the available data
         return self.slice(time_start, time_stop)
