@@ -360,12 +360,19 @@ class Isokinetic1RMTest(LabTest):
             ftype="lowpass",
             phase_corrected=True,
         )
-        batches = sp.continuous_batches(parr > 0.02 * np.max(parr))
-        if len(batches) == 0:
+        start_batches = sp.continuous_batches(parr > 0.02 * np.max(parr))
+        if len(start_batches) == 0:
             raise RuntimeError("No repetitions have been found")
-        samples = [len(i) for i in batches]
-        batches = [batches[i] for i in np.sort(np.argsort(samples)[::-1][:3])]
-        self._repetitions = [pd.DataFrame(self.raw.iloc[b, :]) for b in batches]
+        samples = [len(i) for i in start_batches]
+        starts = [start_batches[i][0] for i in np.sort(np.argsort(samples)[::-1][:3])]
+        stop_batches = sp.continuous_batches(parr < 0.02 * np.min(parr))
+        for start in starts:
+            stops = [i[0] for i in stop_batches if i[0] > start]
+            if len(stops) > 0:
+                stop = np.min(stops) + 1
+                self._repetitions += [pd.DataFrame(self.raw.iloc[start:stop, :])]
+        if len(self._repetitions) == 0:
+            raise RuntimeError("No repetitions have been found.")
 
     @classmethod
     def from_biostrength_file(cls, file: str, product: BiostrengthProduct):
