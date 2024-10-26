@@ -366,6 +366,7 @@ class Isokinetic1RMTest(LabTest):
         samples = [len(i) for i in start_batches]
         starts = [start_batches[i][0] for i in np.sort(np.argsort(samples)[::-1][:3])]
         stop_batches = sp.continuous_batches(parr < 0.02 * np.min(parr))
+        self._repetitions = []
         for start in starts:
             stops = [i[0] for i in stop_batches if i[0] > start]
             if len(stops) > 0:
