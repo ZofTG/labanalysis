@@ -163,27 +163,9 @@ class SquatJump(StateFrame):
         mns = time[sp.find_peaks(-s2f)]
         mns = mns[mns < con_end]
         if len(mns) == 0:
-            raise RuntimeError("No concentric phase has been found")
-        con_start = mns[-1]
-        """
-        s2a = sp.winter_derivative2(s2y, s2t)
-        s2t = s2t[1:-1]
-        batches = sp.continuous_batches((s2a > 0) & (s2t < con_end))
-        if len(batches) == 0:
-            raise RuntimeError("No concentric phase has been found")
-        batch = batches[np.argmax([len(i) for i in batches])]
-
-        # take the last local minima in the vertical grf occurring before
-        # start_s2
-        start_s2 = float(round(s2t[batch[0]], 3))  # type: ignore
-        grfy = self.grf.values.astype(float).flatten()
-        grft = self.grf.index.to_numpy()
-        mins = grft[sp.find_peaks(-grfy[grft < start_s2])]
-        if len(mins) == 0:
-            con_start = start_s2
+            con_start = 0
         else:
-            con_start = float(round(mins[-1], 3))
-        """
+            con_start = mns[-1]
 
         # return a slice of the available data
         return self.slice(con_start, con_end)
