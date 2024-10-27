@@ -659,14 +659,27 @@ class SideJumpTest(LabTest):
     def _get_jump_results(self, jump: SideJump):
         """private method used to obtain jump results"""
         col = ("Phase", "", "", "", "")
-        dfe = jump.eccentric_phase.to_dataframe().dropna()
-        dfe.insert(0, col, np.tile("Eccentric", dfe.shape[0]))
-        dfc = jump.concentric_phase.to_dataframe().dropna()
-        dfc.insert(0, col, np.tile("Concentric", dfc.shape[0]))
-        dff = jump.flight_phase.to_dataframe().dropna()
-        dff.insert(0, col, np.tile("Flight", dff.shape[0]))
-        dfl = jump.loading_response_phase.to_dataframe().dropna()
-        dfl.insert(0, col, np.tile("Loading Response", dfl.shape[0]))
+        try:
+            dfe = jump.eccentric_phase.to_dataframe().dropna()
+            dfe.insert(0, col, np.tile("Eccentric", dfe.shape[0]))
+        except Exception:
+            dfe = pd.DataFrame()
+        try:
+            dfc = jump.concentric_phase.to_dataframe().dropna()
+            dfc.insert(0, col, np.tile("Concentric", dfc.shape[0]))
+        except Exception:
+            dfc = pd.DataFrame()
+        try:
+            dff = jump.flight_phase.to_dataframe().dropna()
+            dff.insert(0, col, np.tile("Flight", dff.shape[0]))
+        except Exception:
+            dff = pd.DataFrame()
+        try:
+            dfl = jump.loading_response_phase.to_dataframe().dropna()
+            dfl.insert(0, col, np.tile("Loading Response", dfl.shape[0]))
+        except Exception:
+            dfe = pd.DataFrame()
+
         dfj = pd.concat([dfe, dfc, dff, dfl])
         time = dfj.index.to_numpy() - dfj.index[0]
         dfj.insert(0, ("Time", "", "", "", ""), time)

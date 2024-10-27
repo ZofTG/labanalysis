@@ -12,13 +12,13 @@ build-backend = "setuptools.build_meta"
 name = "labanalysis"
 authors = [{ name="Luca Zoffoli", email="lzoffoli@technogym.com" }]
 description = "A small package to simplify data processing in python."
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-version = "41"
+version = "42"
 dynamic = ["readme", "dependencies"]
 
 [tool.setuptools.dynamic]
