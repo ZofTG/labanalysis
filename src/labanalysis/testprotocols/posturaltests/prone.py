@@ -129,7 +129,7 @@ class ProneStance(UprightStance):
                 msg += " forceplatform object."
                 raise ValueError(msg)
 
-        self._forceplatforms = self._forceplatforms[required_fp]
+        # self._forceplatforms = self._forceplatforms[required_fp]
 
     # * constructors
 
@@ -604,7 +604,7 @@ class PlankTest(ProneStance, LabTest):
                 msg += " forceplatform object."
                 raise ValueError(msg)
 
-        self._forceplatforms = self._forceplatforms[required_fp]
+        # self._forceplatforms = self._forceplatforms[required_fp]
 
     def to_pronestance(self):
         """return the object as ProneStance instance"""
