@@ -825,7 +825,7 @@ class EllipseRegression(PolynomialRegression):
         self.intercept_ = coefs[-1]
         self._betas = pd.DataFrame(
             data=np.concatenate([self.coef_, [self.intercept_]]),
-            columns=["A", "B", "C", "D", "E", "F"],
+            index=["A", "B", "C", "D", "E", "F"],
         )
 
         # get the axes angles
