@@ -823,6 +823,10 @@ class EllipseRegression(PolynomialRegression):
         coefs = np.concatenate((eiv_pos, trc @ eiv_pos)).ravel()
         self.coef_ = coefs[:-1]
         self.intercept_ = coefs[-1]
+        self._betas = pd.DataFrame(
+            data=np.concatenate([self.coef_, [self.intercept_]]),
+            columns=["A", "B", "C", "D", "E", "F"],
+        )
 
         # get the axes angles
         # ref: http://www.geom.uiuc.edu/docs/reference/CRC-formulas/node28.html
