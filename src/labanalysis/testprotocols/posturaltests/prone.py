@@ -431,12 +431,13 @@ class PlankTest(ProneStance, LabTest):
 
         # stability
         pos = res[[i for i in res.columns if i[1] != "FORCE" and i[0] == "fRes"]]
+        pos.columns = pd.Index(["X", "Y"])
         avg = pos[["X", "Y"]].mean(axis=0)
         stability = (((pos[["X", "Y"]] - avg) ** 2).sum(axis=1) ** 0.5).mean()
         stability = {
             "Parameter": "Stability",
             "Unit": "mm",
-            "Value": stability,
+            "Value": stability * 1000,
         }
         out += [stability]
 
