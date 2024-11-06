@@ -423,7 +423,8 @@ class LabTest(Protocol):
             with open(file_path, "wb") as buf:
                 pickle.dump(self, buf)
 
-    def load(self, file_path: str):
+    @classmethod
+    def load(cls, file_path: str):
         """
         load the test data from an input file
 
@@ -441,7 +442,7 @@ class LabTest(Protocol):
         """
         if not isinstance(file_path, str):
             raise ValueError("'file_path' must be a str instance.")
-        extension = "." + self.__class__.__name__.lower()
+        extension = "." + cls.__name__.lower()
         if not file_path.endswith(extension):
             raise ValueError(f"'file_path' must have {extension}.")
         try:

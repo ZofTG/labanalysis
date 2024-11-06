@@ -5,6 +5,7 @@
 
 import sys
 from os.path import dirname, join
+from os import remove
 
 import labio
 
@@ -24,12 +25,16 @@ def test_isokinetic_1rm():
     files = get_files(join(dirname(__file__), "isokinetic_1rm_data"), ".txt")
     for file in files:
         test = Isokinetic1RMTest.from_biostrength_file(file, labio.LegPressREV)  # type: ignore
+        save_file = "legpressrev.isokinetic1rmtest"
+        test.save(save_file)
+        test = Isokinetic1RMTest.load(save_file)
         fig1 = test.results_plot
         fig1.update_layout(title=file + " (RESULTS PLOT)")
         fig1.show()
         fig2 = test.summary_plot
         fig2.update_layout(title=file + " (SUMMARY PLOT)")
         fig2.show()
+        remove(save_file)
     print("TEST ISOKINETIC 1RM COMPLETED")
 
 

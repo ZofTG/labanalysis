@@ -259,7 +259,7 @@ class Isokinetic1RMTest(LabTest):
                 )
             ),
         )
-        b1, b0 = self.product.rm1_coefs
+        b1, b0 = self.product._rm1_coefs
         out = [des]
         for grp, dfr in des.loc[des.PARAMETER == "Load"].groupby(["REPETITION"]):
             line = {
@@ -328,11 +328,11 @@ class Isokinetic1RMTest(LabTest):
         tarr = self._check_array(time)
         parr = self._check_array(position)
         larr = self._check_array(load)
-        if not issubclass(product.__class__, BiostrengthProduct):
+        if not issubclass(product, BiostrengthProduct):  # type: ignore
             raise ValueError("'product' must be a valid Biostrength Product.")
 
         # get the raw data
-        self._product = product
+        self._product = product  # type: ignore
         self._raw = pd.DataFrame(
             data=[parr, larr],
             index=pd.MultiIndex.from_tuples([("Position", "m"), ("Load", "kgf")]),
@@ -389,7 +389,7 @@ class Isokinetic1RMTest(LabTest):
         msg = "'file' must be the path to a valid .txt file"
         if not isinstance(file, str) or not exists(file):
             raise ValueError(msg)
-        if not issubclass(product.__class__, BiostrengthProduct):
+        if not issubclass(product, BiostrengthProduct):  # type: ignore
             raise ValueError("'product' must be a valid Biostrength Product")
 
         # read the data
@@ -404,5 +404,5 @@ class Isokinetic1RMTest(LabTest):
             time=bio.time_s,
             position=bio.position_lever_m,
             load=bio.load_lever_kgf,
-            product=product,
+            product=product,  # type: ignore
         )
