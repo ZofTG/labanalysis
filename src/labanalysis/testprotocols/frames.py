@@ -810,61 +810,6 @@ class StateFrame:
         # return the tuple
         return (muscle, side)
 
-    def save(self, file_path: str):
-        """
-        save the test to the input file
-
-        Parameters
-        ----------
-        file_path: str
-            the path where to save the file. The file extension should mimic
-            the test name. If this is not the case, the appropriate extension
-            is appended.
-        """
-        if not isinstance(file_path, str):
-            raise ValueError("'file_path' must be a str instance.")
-        extension = "." + self.__class__.__name__.lower()
-        if not file_path.endswith(extension):
-            file_path += extension
-        overwrite = False
-        while exists(file_path) and not overwrite:
-            overwrite = messages.askyesnocancel(
-                title="File already exists",
-                message="the provided file_path already exist. Overwrite?",
-            )
-            if not overwrite:
-                file_path = file_path[: len(extension)] + "_" + extension
-        if not exists(file_path) or overwrite:
-            with open(file_path, "wb") as buf:
-                pickle.dump(self, buf)
-
-    def load(self, file_path: str):
-        """
-        load the test data from an input file
-
-        Parameters
-        ----------
-        file_path: str
-            the path where to save the file. The file extension should mimic
-            the test name. If this is not the case, the appropriate extension
-            is appended.
-
-        Returns
-        -------
-        obj: Self
-            the test object
-        """
-        if not isinstance(file_path, str):
-            raise ValueError("'file_path' must be a str instance.")
-        extension = "." + self.__class__.__name__.lower()
-        if not file_path.endswith(extension):
-            raise ValueError(f"'file_path' must have {extension}.")
-        try:
-            with open(file_path, "rb") as buf:
-                return pickle.load(buf)
-        except Exception:
-            raise RuntimeError(f"an error occurred importing {file_path}.")
-
     # *constructors
 
     def __init__(
