@@ -9,10 +9,6 @@ Isokinetic1RMTest
 
 #! IMPORTS
 
-
-from os.path import exists
-from typing import Iterable
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -84,16 +80,10 @@ class Isokinetic1RMTest(LabTest):
 
     # * class variables
 
-    _repetitions: list[pd.DataFrame]
+    _repetitions: list[BiostrengthProduct]
     _product: BiostrengthProduct
-    _raw: pd.DataFrame
 
     # * attributes
-
-    @property
-    def raw(self):
-        """return the raw data"""
-        return self._raw
 
     @property
     def repetitions(self):
@@ -115,21 +105,6 @@ class Isokinetic1RMTest(LabTest):
         """return the predicted 1RM"""
         b1, b0 = self.product.rm1_coefs
         return self.peak_load * b1 + b0
-
-    @property
-    def rom1(self):
-        """return the ending position of the repetitions"""
-        return float(np.mean([dfr.position.max() for dfr in self.repetitions]))
-
-    @property
-    def rom0(self):
-        """return the starting position of the repetitions"""
-        return float(np.mean([dfr.position.min() for dfr in self.repetitions]))
-
-    @property
-    def rom(self):
-        """return the Range of Movement"""
-        return self.rom1 - self.rom0
 
     @property
     def summary_plot(self):
@@ -288,59 +263,27 @@ class Isokinetic1RMTest(LabTest):
         """
         return a table containing the whole data
         """
-        out = self.raw
+        out = []
         for i, rep in enumerate(self.repetitions):
-            out.loc[rep.index, ("REPETITION", "#")] = i + 1
-        return out
-
-    # * methods
-
-    def _check_array(self, obj: object):
-        """
-        private method used evaluate if obj is an iterable of float or int
-
-        Parameters
-        ----------
-        obj: object
-            the object to be checked
-
-        Returns
-        -------
-        arr: ArrayLike
-            a 1D array of float obtained from obj.
-        """
-        try:
-            return np.array([obj]).astype(float).flatten()
-        except Exception as exc:
-            msg = "obj must be an Iterable of float or int."
-            raise ValueError(msg) from exc
+            new = rep.as_dataframe()
+            new.insert(0, ("REPETITION", "#"), np.tile(i + 1, new.shape[0]))
+            out += [new]
+        return pd.concat(out, ignore_index=True)
 
     # * constructors
 
-    def __init__(
-        self,
-        time: Iterable[float | int],
-        position: Iterable[float | int],
-        load: Iterable[float | int],
-        product: BiostrengthProduct,
-    ):
-        # check the inputs
-        tarr = self._check_array(time)
-        parr = self._check_array(position)
-        larr = self._check_array(load)
-        if not issubclass(product, BiostrengthProduct):  # type: ignore
+    def __init__(self, product: BiostrengthProduct):
+
+        # check the input
+        if not issubclass(product.__class__, BiostrengthProduct):
             raise ValueError("'product' must be a valid Biostrength Product.")
 
         # get the raw data
         self._product = product  # type: ignore
-        self._raw = pd.DataFrame(
-            data=[parr, larr],
-            index=pd.MultiIndex.from_tuples([("Position", "m"), ("Load", "kgf")]),
-            columns=pd.Index(tarr, name="Time (s)"),
-        ).T
+        raw = product.as_dataframe()
 
         # get the repetitions
-        parr, farr = self._raw.values.T.astype(float)
+        tarr, parr, farr = raw.values[:, :2].T
         if abs(np.min(parr)) > abs(np.max(parr)):
             parr *= -1
         parr -= parr[0]
@@ -367,42 +310,6 @@ class Isokinetic1RMTest(LabTest):
             stops = [i[0] for i in stop_batches if i[0] > start]
             if len(stops) > 0:
                 stop = np.min(stops) + 1
-                self._repetitions += [pd.DataFrame(self.raw.iloc[start:stop, :])]
+                self._repetitions += [self.product.slice(start, stop)]
         if len(self._repetitions) == 0:
             raise RuntimeError("No repetitions have been found.")
-
-    @classmethod
-    def from_biostrength_file(cls, file: str, product: BiostrengthProduct):
-        """
-        generate directly from raw file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file returned from a Biostrength device
-
-        product: BiostrengthProduct
-            the product instance defining the product from which the file has
-            been generated.
-        """
-        # check the inputs
-        msg = "'file' must be the path to a valid .txt file"
-        if not isinstance(file, str) or not exists(file):
-            raise ValueError(msg)
-        if not issubclass(product, BiostrengthProduct):  # type: ignore
-            raise ValueError("'product' must be a valid Biostrength Product")
-
-        # read the data
-        try:
-            bio = product.from_file(file)
-        except Exception as exc:
-            msg = "An error occurred reading the provided file."
-            raise RuntimeError(msg) from exc
-
-        # generate the object instance
-        return cls(
-            time=bio.time_s,
-            position=bio.position_lever_m,
-            load=bio.load_lever_kgf,
-            product=product,  # type: ignore
-        )
