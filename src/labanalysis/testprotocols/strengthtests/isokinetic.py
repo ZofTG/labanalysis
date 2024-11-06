@@ -203,8 +203,6 @@ class Isokinetic1RMTest(LabTest):
 
         # prepare the data
         tab = self.results_table.copy()
-        tab.insert(0, ("Time", "s"), tab.index.to_numpy())
-        tab.reset_index(inplace=True, drop=True)
         tab.columns = pd.Index([i[0] for i in tab.columns])
 
         # generate the figure and the subplot grid
