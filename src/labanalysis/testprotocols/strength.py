@@ -283,7 +283,7 @@ class Isokinetic1RMTest(LabTest):
         raw = product.as_dataframe()
 
         # get the repetitions
-        tarr, parr, farr = raw.values[:, :2].T
+        tarr, parr, farr = raw.values[:, :3].T
         if abs(np.min(parr)) > abs(np.max(parr)):
             parr *= -1
         parr -= parr[0]
