@@ -269,7 +269,9 @@ class StateFrame:
 
         if fps.shape[0] > 0:
             fcols = [i for i, v in enumerate(fps.columns) if v[1] != "ORIGIN"]
-            fps.iloc[:, fcols] = fillna(fps.iloc[:, fcols], 0)  # zeros  # type: ignore
+            fps.iloc[:, fcols] = signalprocessing.fillna(
+                fps.iloc[:, fcols], 0
+            )  # zeros  # type: ignore
             pcols = [i for i, v in enumerate(fps.columns) if v[1] == "ORIGIN"]
             fps.iloc[:, pcols] = signalprocessing.fillna(
                 fps.iloc[:, pcols]

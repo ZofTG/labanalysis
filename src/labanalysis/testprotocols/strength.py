@@ -57,8 +57,8 @@ class Isokinetic1RMTest(LabTest):
     repetitions: list[DataFrame]
         a list of dataframes each defining one single repetition
 
-    coefs_1rm: dict[str, float]
-        the 1RM conversion coefficients
+    product: BiostrengthProduct
+        the product on which the test has been performed
 
     peak_load: float
         the peak load measured during the isokinetic repetitions
@@ -85,7 +85,7 @@ class Isokinetic1RMTest(LabTest):
     # * class variables
 
     _repetitions: list[pd.DataFrame]
-    _1rm_coefs: tuple[int | float, int | float]
+    _product: BiostrengthProduct
     _raw: pd.DataFrame
 
     # * attributes
@@ -101,9 +101,9 @@ class Isokinetic1RMTest(LabTest):
         return self._repetitions
 
     @property
-    def coefs_1rm(self):
-        """return the 1RM coefficients related to the isokinetic test"""
-        return self._1rm_coefs
+    def product(self):
+        """return the product on which the test has been performed"""
+        return self._product
 
     @property
     def peak_load(self):
@@ -113,7 +113,7 @@ class Isokinetic1RMTest(LabTest):
     @property
     def estimated_1rm(self):
         """return the predicted 1RM"""
-        b1, b0 = self._1rm_coefs
+        b1, b0 = self.product.rm1_coefs
         return self.peak_load * b1 + b0
 
     @property
@@ -259,7 +259,7 @@ class Isokinetic1RMTest(LabTest):
                 )
             ),
         )
-        b1, b0 = self.coefs_1rm
+        b1, b0 = self.product.rm1_coefs
         out = [des]
         for grp, dfr in des.loc[des.PARAMETER == "Load"].groupby(["REPETITION"]):
             line = {
@@ -322,21 +322,17 @@ class Isokinetic1RMTest(LabTest):
         time: Iterable[float | int],
         position: Iterable[float | int],
         load: Iterable[float | int],
-        coefs_1rm: tuple[float | int, float | int] = (0, 1),
+        product: BiostrengthProduct,
     ):
         # check the inputs
         tarr = self._check_array(time)
         parr = self._check_array(position)
         larr = self._check_array(load)
-        msg = "'coefs_1rm' must be a tuple with 2 floats."
-        if not isinstance(coefs_1rm, (list, tuple)):
-            raise ValueError(msg)
-        for i in coefs_1rm:
-            if not isinstance(i, (float, int)):
-                raise ValueError(msg)
-        self._1rm_coefs = coefs_1rm
+        if not issubclass(product.__class__, BiostrengthProduct):
+            raise ValueError("'product' must be a valid Biostrength Product.")
 
         # get the raw data
+        self._product = product
         self._raw = pd.DataFrame(
             data=[parr, larr],
             index=pd.MultiIndex.from_tuples([("Position", "m"), ("Load", "kgf")]),
@@ -393,7 +389,7 @@ class Isokinetic1RMTest(LabTest):
         msg = "'file' must be the path to a valid .txt file"
         if not isinstance(file, str) or not exists(file):
             raise ValueError(msg)
-        if not issubclass(product, BiostrengthProduct):  # type: ignore
+        if not issubclass(product.__class__, BiostrengthProduct):
             raise ValueError("'product' must be a valid Biostrength Product")
 
         # read the data
@@ -408,5 +404,5 @@ class Isokinetic1RMTest(LabTest):
             time=bio.time_s,
             position=bio.position_lever_m,
             load=bio.load_lever_kgf,
-            coefs_1rm=(bio.rm1_coefs[0], bio.rm1_coefs[1]),
+            product=product,
         )
