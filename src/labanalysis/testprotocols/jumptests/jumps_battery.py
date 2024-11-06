@@ -55,7 +55,10 @@ class JumpTestBattery(TestBattery):
     def summary_table(self):
         """return a table with summary stats from all the tests"""
         tab = super().summary_table
-        tab.loc[tab.Side.isna(), "Side"] = "Bilateral"
+        if not any(i == "Side" for i in tab.columns):
+            tab.insert(0, "Side", np.tile("Bilateral", tab.shape[0]))
+        else:
+            tab.loc[tab.Side.isna(), "Side"] = "Bilateral"
         tab.loc[tab.index, "Test"] = tab.Test.map(
             lambda x: x.replace("JumpTest", "") + " Jump"
         )
