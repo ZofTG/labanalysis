@@ -402,17 +402,49 @@ class PlankTest(ProneStance, LabTest):
         lower = forces.rFoot + forces.lFoot
         left = forces.rHand + forces.rFoot
         right = forces.lHand + forces.lFoot
-        force_dist = [
-            {"REGION": "Upper", "VALUE": upper.mean(), "ERROR": upper.std()},
-            {"REGION": "Lower", "VALUE": lower.mean(), "ERROR": lower.std()},
-            {"REGION": "Left", "VALUE": left.mean(), "ERROR": left.std()},
-            {"REGION": "Right", "VALUE": right.mean(), "ERROR": right.std()},
+        out = [
+            {
+                "Parameter": "Weight distribution",
+                "Side": "Upper Body",
+                "Unit": "%",
+                "Value": upper.mean(),
+            },
+            {
+                "Parameter": "Weight distribution",
+                "Side": "Lower Body",
+                "Unit": "%",
+                "Value": lower.mean(),
+            },
+            {
+                "Parameter": "Weight distribution",
+                "Side": "Left",
+                "Unit": "%",
+                "Value": left.mean(),
+            },
+            {
+                "Parameter": "Weight distribution",
+                "Side": "Right",
+                "Unit": "%",
+                "Value": right.mean(),
+            },
         ]
-        force_dist = [pd.DataFrame(pd.Series(i)).T for i in force_dist]
-        force_dist = pd.concat(force_dist, ignore_index=True)
-        force_dist.insert(1, "UNIT", np.tile("% Weight", force_dist.shape[0]))
 
-        return force_dist
+        # stability
+        pos = res[[i for i in res.columns if i[1] != "FORCE" and i[0] == "fRes"]]
+        avg = pos[["X", "Y"]].mean(axis=0)
+        stability = (((pos[["X", "Y"]] - avg) ** 2).sum(axis=1) ** 0.5).mean()
+        stability = {
+            "Parameter": "Stability",
+            "Unit": "mm",
+            "Value": stability,
+        }
+        out += [stability]
+
+        # wrap up and return
+        out = [pd.DataFrame(pd.Series(i)).T for i in out]
+        out = pd.concat(out, ignore_index=True)
+
+        return out
 
     @property
     def summary_plot(self):

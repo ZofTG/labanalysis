@@ -75,6 +75,9 @@ tkeo
 padwin
     pad the signal according to the given order and return the mask of
     indices defining each window on the signal.
+
+to_reference_frame
+    rotate a 3D array or dataframe to the provided reference frame
 """
 
 #! IMPORTS
@@ -85,6 +88,7 @@ from itertools import product
 from pandas import DataFrame
 from scipy import signal  # type: ignore
 from scipy.interpolate import CubicSpline  # type: ignore
+from scipy.spatial.transform import Rotation
 import numpy as np
 
 from .regression import PolynomialRegression
@@ -113,6 +117,7 @@ __all__ = [
     "gram_schmidt",
     "fillna",
     "tkeo",
+    "to_reference_frame",
 ]
 
 
@@ -1535,3 +1540,74 @@ def tkeo(
     """
     out = arr[1:-1] ** 2 - arr[2:] * arr[:-2]
     return np.concatenate([[out[0]], out, [out[-1]]]).astype(float)
+
+
+def to_reference_frame(
+    obj: DataFrame | np.ndarray,
+    origin: np.ndarray | list[float | int] = [0, 0, 0],
+    axis1: np.ndarray | list[float | int] = [1, 0, 0],
+    axis2: np.ndarray | list[float | int] = [0, 1, 0],
+    axis3: np.ndarray | list[float | int] = [0, 0, 1],
+):
+    """
+    rotate a 3D array or dataframe to the provided reference frame.
+
+    Parameters
+    ----------
+    obj: DataFrame | np.ndarray
+        the 3D array or dataframe to be rotated.
+
+    origin: np.ndarray | list[float | int]
+        an array of len = 3 with the coordinates of the target origin
+
+    axis1: np.ndarray | list[float | int]
+        an array of len = 3 with the coordinates representing the orientation
+        of the first axis of the new reference frame
+
+    axis2: np.ndarray | list[float | int]
+        an array of len = 3 with the coordinates representing the orientation
+        of the second axis of the new reference frame
+
+    axis3: np.ndarray | list[float | int]
+        an array of len = 3 with the coordinates representing the orientation
+        of the third axis of the new reference frame
+
+    Returns
+    -------
+    rotated: DataFrame | np.ndarray
+        the rotated data.
+    """
+
+    def _validate_array(arr: object):
+        msg = "origin, axis1, axis2 and axis3 have to be"
+        msg += " castable to 1D arrays of len = 3."
+        try:
+            out = np.array([arr]).astype(float).flatten()
+        except Exception:
+            raise ValueError(msg)
+        if len(out) != 3:
+            raise ValueError(msg)
+        return out
+
+    # check inputs
+    msg = "'obj' must be a numeric pandas DataFrame or a 2D numpy array"
+    msg += " with 3 elements along the second dimension."
+    try:
+        dfr = DataFrame(obj)
+        if dfr.shape[1] != 3:
+            raise ValueError(msg)
+    except Exception:
+        raise ValueError(msg)
+    ori = np.ones(dfr.shape) * _validate_array(origin)
+    ax1 = _validate_array(axis1)
+    ax2 = _validate_array(axis2)
+    ax3 = _validate_array(axis3)
+
+    # create the rotation matrix
+    rmat = Rotation.from_matrix(gram_schmidt(ax1, ax2, ax3))
+
+    # apply
+    rotated = rmat.apply(dfr.values - ori).astype(float)
+    if not isinstance(obj, DataFrame):
+        return rotated
+    return DataFrame(rotated, columns=obj.columns, index=obj.index)

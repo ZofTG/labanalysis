@@ -6,6 +6,7 @@ analysis
 #! IMPORTS
 
 
+import pickle
 from os.path import exists
 from typing import Any, Iterable
 from warnings import warn
@@ -13,9 +14,8 @@ from warnings import warn
 import numpy as np
 import pandas as pd
 from labio import read_tdf
-from scipy.spatial.transform import Rotation
 
-from ..signalprocessing import butterworth_filt, fillna, gram_schmidt, rms_filt
+from .. import messages, signalprocessing
 
 __all__ = ["StateFrame"]
 
@@ -263,19 +263,23 @@ class StateFrame:
 
         # fill nans
         if markers.shape[0] > 0:
-            markers = pd.DataFrame(fillna(markers))  # cubic spline interpolation
+            markers = pd.DataFrame(
+                signalprocessing.fillna(markers)
+            )  # cubic spline interpolation
 
         if fps.shape[0] > 0:
             fcols = [i for i, v in enumerate(fps.columns) if v[1] != "ORIGIN"]
             fps.iloc[:, fcols] = fillna(fps.iloc[:, fcols], 0)  # zeros  # type: ignore
             pcols = [i for i, v in enumerate(fps.columns) if v[1] == "ORIGIN"]
-            fps.iloc[:, pcols] = fillna(
+            fps.iloc[:, pcols] = signalprocessing.fillna(
                 fps.iloc[:, pcols]
             )  # cubic spline interpolation    # type: ignore
             fps = pd.DataFrame(fps)
 
         if emgs.shape[0] > 0:
-            emgs = pd.DataFrame(fillna(emgs))  # cubic spline interpolation
+            emgs = pd.DataFrame(
+                signalprocessing.fillna(emgs)
+            )  # cubic spline interpolation
 
         # check index
         if not isinstance(ignore_index, bool):
@@ -309,7 +313,7 @@ class StateFrame:
             # apply the filter
             if markers.shape[0] > 0:
                 markers = markers.apply(
-                    butterworth_filt,
+                    signalprocessing.butterworth_filt,
                     raw=True,
                     **self._marker_processing_options,
                 )
@@ -335,7 +339,7 @@ class StateFrame:
             # apply the filter
             if fps.shape[0] > 0:
                 fps = fps.apply(
-                    butterworth_filt,
+                    signalprocessing.butterworth_filt,
                     raw=True,
                     **self._forceplatform_processing_options,
                 )
@@ -375,14 +379,14 @@ class StateFrame:
             bp_options = self.emg_processing_options.copy()  # type: ignore
             bp_options.pop("rms_window")
             emgs = emgs.apply(
-                butterworth_filt,
+                signalprocessing.butterworth_filt,
                 raw=True,
                 **bp_options,
             )
 
             # apply the rms envelope
             rms_dt = int(round(rms_win * emg_fsamp))
-            emgs = emgs.apply(rms_filt, raw=True, order=rms_dt)
+            emgs = emgs.apply(signalprocessing.rms_filt, raw=True, order=rms_dt)
 
         # check for the 'inplace' input
         if not isinstance(inplace, bool):
@@ -490,10 +494,10 @@ class StateFrame:
 
     def to_reference_frame(
         self,
-        origin: Iterable[int | float] | pd.DataFrame = [0, 0, 0],
-        axis1: Iterable[int | float] | pd.DataFrame | None = [1, 0, 0],
-        axis2: Iterable[int | float] | pd.DataFrame | None = [0, 1, 0],
-        axis3: Iterable[int | float] | pd.DataFrame | None = [0, 0, 1],
+        origin: np.ndarray | list[float | int] = [0, 0, 0],
+        axis1: np.ndarray | list[float | int] = [1, 0, 0],
+        axis2: np.ndarray | list[float | int] = [0, 1, 0],
+        axis3: np.ndarray | list[float | int] = [0, 0, 1],
         inplace: bool = True,
     ):
         """
@@ -539,48 +543,58 @@ class StateFrame:
         Then it align all the available markers and forceplatforms to the
         input origin and finally it rotates them according to the input axes.
         """
-        # check inputs
-        ori = self._validate_array(origin)
-        ax1 = self._validate_array(axis1)
-        ax2 = self._validate_array(axis2)
-        ax3 = self._validate_array(axis3)
-
-        # create the rotation matrix
-        rmat = Rotation.from_matrix(gram_schmidt(ax1, ax2, ax3))
-
         # apply to markers
         if self._markers.shape[0] > 0:
             markers = self.markers.copy()
-            ones = np.ones((markers.shape[0], 3))
             idx = markers.index
             for lbl in np.unique(markers.columns.get_level_values(0)):
                 coords = [i for i in markers.columns if i[0] == lbl]
-                markers.loc[idx, coords] -= ones * ori
-                vals = markers.loc[idx, coords].values
-                markers.loc[idx, coords] = rmat.apply(vals)
+                markers.loc[idx, coords] = signalprocessing.to_reference_frame(
+                    obj=markers.loc[idx, coords],
+                    origin=origin,
+                    axis1=axis1,
+                    axis2=axis2,
+                    axis3=axis3,
+                )
         else:
             markers = self._markers
 
         # apply to forceplatforms
         if self._forceplatforms.shape[0] > 0:
             fps = self._forceplatforms.copy()
-            ones = np.ones((fps.shape[0], 3))
             idx = fps.index
             for lbls in np.unique(fps.columns.get_level_values(0)):
                 dfr = fps[[i for i in fps.columns if i[0] == lbls]]
 
                 # marker coordinates
                 coords = [i for i in dfr.columns if i[1] == "ORIGIN"]
-                fps.loc[idx, coords] -= ones * ori
-                fps.loc[idx, coords] = rmat.apply(fps.loc[idx, coords].values)
+                fps.loc[idx, coords] = signalprocessing.to_reference_frame(
+                    obj=fps.loc[idx, coords],
+                    origin=origin,
+                    axis1=axis1,
+                    axis2=axis2,
+                    axis3=axis3,
+                )
 
                 # forces
                 forces = [i for i in dfr.columns if i[1] == "FORCE"]
-                fps.loc[idx, forces] = rmat.apply(fps.loc[idx, forces].values)
+                fps.loc[idx, forces] = signalprocessing.to_reference_frame(
+                    obj=fps.loc[idx, forces],
+                    origin=[0, 0, 0],
+                    axis1=axis1,
+                    axis2=axis2,
+                    axis3=axis3,
+                )
 
                 # torque
                 torques = [i for i in dfr.columns if i[1] == "TORQUE"]
-                fps.loc[idx, torques] = rmat.apply(fps.loc[idx, torques].values)
+                fps.loc[idx, torques] = signalprocessing.to_reference_frame(
+                    obj=fps.loc[idx, torques],
+                    origin=[0, 0, 0],
+                    axis1=axis1,
+                    axis2=axis2,
+                    axis3=axis3,
+                )
         else:
             fps = self._forceplatforms
 
@@ -793,6 +807,61 @@ class StateFrame:
 
         # return the tuple
         return (muscle, side)
+
+    def save(self, file_path: str):
+        """
+        save the test to the input file
+
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test name. If this is not the case, the appropriate extension
+            is appended.
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + self.__class__.__name__.lower()
+        if not file_path.endswith(extension):
+            file_path += extension
+        overwrite = False
+        while exists(file_path) and not overwrite:
+            overwrite = messages.askyesnocancel(
+                title="File already exists",
+                message="the provided file_path already exist. Overwrite?",
+            )
+            if not overwrite:
+                file_path = file_path[: len(extension)] + "_" + extension
+        if not exists(file_path) or overwrite:
+            with open(file_path, "wb") as buf:
+                pickle.dump(self, buf)
+
+    def load(self, file_path: str):
+        """
+        load the test data from an input file
+
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test name. If this is not the case, the appropriate extension
+            is appended.
+
+        Returns
+        -------
+        obj: Self
+            the test object
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + self.__class__.__name__.lower()
+        if not file_path.endswith(extension):
+            raise ValueError(f"'file_path' must have {extension}.")
+        try:
+            with open(file_path, "rb") as buf:
+                return pickle.load(buf)
+        except Exception:
+            raise RuntimeError(f"an error occurred importing {file_path}.")
 
     # *constructors
 
