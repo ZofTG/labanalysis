@@ -23,18 +23,13 @@ def test_isokinetic_1rm():
     """test the isokinetic 1RM test"""
     print("\nTEST ISOKINETIC 1RM")
     files = get_files(join(dirname(__file__), "isokinetic_1rm_data"), ".txt")
+    tests = []
     for file in files:
-        test = Isokinetic1RMTest.from_biostrength_file(file, labio.LegPressREV)  # type: ignore
-        save_file = "legpressrev.isokinetic1rmtest"
-        test.save(save_file)
-        test = Isokinetic1RMTest.load(save_file)
-        fig1 = test.results_plot
-        fig1.update_layout(title=file + " (RESULTS PLOT)")
-        fig1.show()
-        fig2 = test.summary_plot
-        fig2.update_layout(title=file + " (SUMMARY PLOT)")
-        fig2.show()
-        remove(save_file)
+        side = "Right" if file.split("_")[-1].split(".")[0] == "dx" else "Left"
+        prod = labio.LegPressREV.from_file(file)
+        tests += [Isokinetic1RMTest(prod, side)]
+    battery = Isokinetic1RMTestBattery(*tests)
+    battery.summary_plots.show()
     print("TEST ISOKINETIC 1RM COMPLETED")
 
 

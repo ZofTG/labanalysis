@@ -385,7 +385,14 @@ class PlankTest(ProneStance, LabTest):
         # normalize the force to the bodyweight
         forces = fps.loc[fps.index, [i for i in fps.columns if i[1] == "FORCE"]]
         fps.loc[fps.index, forces.columns] = forces.values / self.weight / G * 100
-        cols = [tuple("%" if j == "N" else j for j in i) for i in fps.columns]
+        coords = fps.loc[fps.index, [i for i in fps.columns if i[1] == "ORIGIN"]]
+        fps.loc[fps.index, coords.columns] = coords.values * 1000
+        cols = []
+        for i in fps.columns:
+            if i[1] == "ORIGIN":
+                cols += [(i[0], "COP", i[2], "mm")]
+            else:
+                cols += [(i[0], "GRF", i[2], "% Weight")]
         fps.columns = pd.MultiIndex.from_tuples(cols)
         return fps
 
@@ -396,7 +403,7 @@ class PlankTest(ProneStance, LabTest):
         res = self.results_table
 
         # get the load distribution
-        forces = res[[i for i in res.columns if i[1] == "FORCE" and i[0] != "fRes"]]
+        forces = res[[i for i in res.columns if i[1] == "GRF" and i[0] != "fRes"]]
         forces.columns = pd.Index([i[0] for i in forces.columns])
         upper = forces.rHand + forces.lHand
         lower = forces.rFoot + forces.lFoot
@@ -430,14 +437,14 @@ class PlankTest(ProneStance, LabTest):
         ]
 
         # stability
-        pos = res[[i for i in res.columns if i[1] != "FORCE" and i[0] == "fRes"]]
+        pos = res[[i for i in res.columns if i[1] == "COP" and i[0] == "fRes"]]
         pos.columns = pd.Index(["X", "Y"])
         avg = pos[["X", "Y"]].mean(axis=0)
         stability = (((pos[["X", "Y"]] - avg) ** 2).sum(axis=1) ** 0.5).mean()
         stability = {
             "Parameter": "Stability",
             "Unit": "mm",
-            "Value": stability * 1000,
+            "Value": stability,
         }
         out += [stability]
 
@@ -454,13 +461,16 @@ class PlankTest(ProneStance, LabTest):
         # generate the figure and the subplot grid
         fig = make_subplots(
             rows=3,
-            cols=2,
-            specs=[[{"rowspan": 3}, {}], [None, {}], [None, {}]],
+            cols=3,
+            specs=[
+                [{"rowspan": 3, "colspan": 2}, None, {}],
+                [None, None, {"rowspan": 2}],
+                [None, None, None],
+            ],
             subplot_titles=[
                 "SWAY PLOT",
                 "",
-                "UPPER/LOWER BODY<br>WEIGHT DISTRIBUTION",
-                "LEFT/RIGHT<br>WEIGHT DISTRIBUTION",
+                "LEFT/RIGHT<br>SYMMETRY",
             ],
             shared_xaxes=False,
             shared_yaxes=False,
@@ -474,25 +484,37 @@ class PlankTest(ProneStance, LabTest):
 
         # plot the sway
         results = self.results_table
-        for lbl in np.unique(results.columns.get_level_values(0)):
-            dfr = results[lbl].ORIGIN
-            if lbl == "fRes":
-                label = "Centre of Pressure"
-            else:
-                label = " ".join(["Left" if lbl[0] == "l" else "Right", lbl[1:]])
-            fig.add_trace(
-                row=1,
-                col=1,
-                trace=go.Scatter(
-                    x=dfr.X.values.astype(float).flatten() * 1000,
-                    y=dfr.Y.values.astype(float).flatten() * 1000,
-                    name=label,
-                    legendgroup="SWAY",
-                    mode="lines",
-                    opacity=0.8,
-                    line_width=5,
-                ),
-            )
+        cop_coords = results.fRes.COP
+        cop_coords.columns = pd.Index([i[0] for i in cop_coords])
+        cop_coords.loc[cop_coords.index, "Y"] -= cop_coords.Y.mean()
+        rng1 = [cop_coords.min().min(), cop_coords.max().max()]
+        fig.add_trace(
+            row=1,
+            col=1,
+            trace=go.Scatter(
+                x=cop_coords.X.values.astype(float).flatten(),
+                y=cop_coords.Y.values.astype(float).flatten(),
+                name="Weight Displacement",
+                mode="lines",
+                opacity=0.5,
+                line_width=2,
+            ),
+        )
+
+        # plot the mean
+        avg = cop_coords.mean(axis=0)
+        fig.add_trace(
+            row=1,
+            col=1,
+            trace=go.Scatter(
+                x=[avg.X],
+                y=[avg.Y],
+                name="Mean Position",
+                mode="markers",
+                opacity=1,
+                marker_size=15,
+            ),
+        )
 
         # add the vertical and horizontal axes
         fig.add_hline(
@@ -516,72 +538,22 @@ class PlankTest(ProneStance, LabTest):
             row=1,  # type: ignore
         )
 
-        # add the area of support
-        pnts = []
-        for lbl in ["lHand", "rHand", "rFoot", "lFoot", "lHand"]:
-            pnts += [results[lbl].ORIGIN.mean(axis=0).values]
-        pnts = np.vstack(np.atleast_2d(pnts)) * 1000  # type: ignore
-        fig.add_trace(
-            row=1,
-            col=1,
-            trace=go.Scatter(
-                x=pnts[:, 0],
-                y=pnts[:, 1],
-                name="AREA OF SUPPORT",
-                legendgroup="SWAY",
-                mode="lines",
-                fill="tonexty",
-                opacity=0.1,
-                line_width=0,
-                line_color="gray",
-            ),
-        )
-
-        # plot the upper/lower body distribution
-        summ = self.summary_table
-        uplow_idx = (summ.REGION == "Lower") | (summ.REGION == "Upper")
-        uplow_df = summ.loc[uplow_idx]
-        uplow_df.insert(0, "TEXT", [f"{i:0.1f}%" for i in uplow_df.VALUE])
-        base = 0.9 * min(
-            uplow_df.VALUE.min(), (uplow_df.VALUE - uplow_df.ERROR.values).min()
-        )
-        uplow_df.insert(0, "BASE", np.tile(base, uplow_df.shape[0]))
-        uplow_df.loc[uplow_df.index, "VALUE"] -= base
-        fig0 = px.bar(
-            data_frame=uplow_df,
-            x="REGION",
-            y="VALUE",
-            text="TEXT",
-            base="BASE",
-            error_y="ERROR",
-            barmode="group",
-        )
-        fig0.update_traces(showlegend=False)
-        for trace in fig0.data:
-            fig.add_trace(row=2, col=2, trace=trace)
-
         # plot the left/right distribution
-        leftright_idx = (summ.REGION == "Left") | (summ.REGION == "Right")
+        summ = self.summary_table
+        leftright_idx = (summ.Side == "Left") | (summ.Side == "Right")
         leftright_df = summ.loc[leftright_idx]
-        leftright_df.insert(0, "TEXT", [f"{i:0.1f}%" for i in leftright_df.VALUE])
-        base = 0.9 * min(
-            leftright_df.VALUE.min(),
-            (leftright_df.VALUE - leftright_df.ERROR.values).min(),
-        )
-        leftright_df.insert(0, "BASE", np.tile(base, leftright_df.shape[0]))
-        leftright_df.loc[leftright_df.index, "VALUE"] -= base
+        leftright_df.insert(0, "Text", [f"{i:0.1f}%" for i in leftright_df.Value])
+        rng2 = [0.95 * leftright_df.Value.min(), 1.05 * leftright_df.Value.max()]
         fig1 = px.bar(
             data_frame=leftright_df,
-            x="REGION",
-            y="VALUE",
-            text="TEXT",
-            base="BASE",
-            error_y="ERROR",
+            x="Side",
+            y="Value",
+            text="Text",
             barmode="group",
         )
         fig1.update_traces(showlegend=False)
         for trace in fig1.data:
-            fig.add_trace(row=3, col=2, trace=trace)
+            fig.add_trace(row=2, col=3, trace=trace)
 
         # add horizontal lines
         fig.add_hline(
@@ -591,30 +563,20 @@ class PlankTest(ProneStance, LabTest):
             opacity=0.5,
             showlegend=False,
             row=2,  # type: ignore
-            col=2,  # type: ignore
-        )
-        fig.add_hline(
-            y=50,
-            line_dash="dash",
-            line_width=2,
-            opacity=0.5,
-            showlegend=False,
-            row=3,  # type: ignore
-            col=2,  # type: ignore
+            col=3,  # type: ignore
         )
 
         # update the layout
-        fig.update_yaxes(col=2, row=2, title="%")
-        fig.update_yaxes(col=2, row=3, title="%")
-        fig.update_yaxes(row=1, col=1, title="mm")
-        fig.update_xaxes(row=1, col=1, title="mm")
+        fig.update_yaxes(col=3, row=2, title="%", range=rng2)
+        fig.update_yaxes(row=1, col=1, title="mm", range=rng1)
+        fig.update_xaxes(row=1, col=1, title="mm", range=rng1)
         fig.update_layout(
             template="simple_white",
             height=800,
             width=800,
             yaxis={"scaleanchor": "x", "scaleratio": 1},
             legend=dict(
-                x=0.5,
+                x=0.7,
                 y=1,
                 xanchor="left",
                 yanchor="top",

@@ -52,10 +52,7 @@ def test_jumps():
     slj_test = SingleLegJumpTest(baseline, slj_left, slj_right)
 
     print("\tGENERATING THE TEST BATTERY")
-    jumps_battery = TestBattery(sj_test, cmj_test, sdj_test, slj_test)
-    for name, fig in jumps_battery.results_plots.items():
-        fig.update_layout(title=name + " RESULTS")
-        fig.show()
+    jumps_battery = JumpTestBattery(sj_test, cmj_test, sdj_test, slj_test)
     for name, fig in jumps_battery.summary_plots.items():
         fig.update_layout(title=name + " SUMMARY")
         fig.show()

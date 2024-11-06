@@ -9,6 +9,7 @@ Isokinetic1RMTest
 
 #! IMPORTS
 
+from typing import Literal
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -16,8 +17,8 @@ import plotly.graph_objects as go
 from labio.read.biostrength import Product as BiostrengthProduct
 from plotly.subplots import make_subplots
 
-from .. import signalprocessing as sp
-from .base import LabTest
+from ... import signalprocessing as sp
+from ..base import LabTest
 
 #! CONSTANTS
 
@@ -82,8 +83,14 @@ class Isokinetic1RMTest(LabTest):
 
     _repetitions: list[BiostrengthProduct]
     _product: BiostrengthProduct
+    _side: Literal["Bilateral", "Left", "Right"]
 
     # * attributes
+
+    @property
+    def side(self):
+        """get the side of the test"""
+        return self._side
 
     @property
     def repetitions(self):
@@ -205,8 +212,8 @@ class Isokinetic1RMTest(LabTest):
             data_frame=tab,
             x="Time",
             y="Load",
-            color="REPETITION",
-            line_dash="REPETITION",
+            color="Repetition",
+            line_dash="Repetition",
             template="simple_white",
             width=1200,
             height=600,
@@ -217,44 +224,54 @@ class Isokinetic1RMTest(LabTest):
     @property
     def summary_table(self):
         """return a table containing summary statistics about the test"""
-        des = self.results_table.dropna().melt(
-            id_vars=[("REPETITION", "#")],
-            var_name="PARAMETER",
-            value_name="VALUE",
+        des = (
+            self.results_table.dropna()
+            .drop(("Time", "s"), axis=1)
+            .melt(
+                id_vars=[("Side", "-"), ("Product", "-"), ("Repetition", "#")],
+                var_name="Parameter",
+                value_name="Value",
+            )
         )
-        des.columns = pd.Index(["REPETITION", "PARAMETER", "VALUE"])
-        des.insert(
-            0,
-            "UNIT",
-            des.PARAMETER.map(
-                lambda x: (
-                    "m"
-                    if x == "Position"
-                    else ("kgf" if x == "Load" else ("m/s" if x == "Velocity" else "W"))
-                )
-            ),
-        )
-        b1, b0 = self.product._rm1_coefs
+        des.columns = pd.Index(["Side", "Product", "Repetition", "Parameter", "Value"])
+
+        def get_unit(param: str):
+            if param == "Position":
+                return "mm"
+            elif param == "Load":
+                return "kgf"
+            elif param == "Speed":
+                return "m/s"
+            else:
+                return "W"
+
+        des.insert(0, "Unit", des.Parameter.map(get_unit))
+
+        # add the 1RM
         out = [des]
-        for grp, dfr in des.loc[des.PARAMETER == "Load"].groupby(["REPETITION"]):
+        b1, b0 = self.product.rm1_coefs
+        for i, rep in enumerate(self.repetitions):
             line = {
-                "UNIT": "kgf",
-                "REPETITION": grp[0],
-                "PARAMETER": "1RM",
-                "VALUE": b0 + b1 * dfr.VALUE.max(),
+                "Side": self.side,
+                "Product": self.product.name,
+                "Unit": "kgf",
+                "Repetition": i + 1,
+                "Parameter": "1RM",
+                "Value": rep.load_lever_kgf.max() * b1 + b0,
             }
             out += [pd.DataFrame(pd.Series(line)).T]
         des = pd.concat(out, ignore_index=True)
-        des = des.groupby(["PARAMETER", "UNIT", "REPETITION"])
+        des = des.groupby(["Side", "Product", "Parameter", "Unit", "Repetition"])
         out = {
-            "MEAN": des.mean(),
-            "STD": des.std(),
-            "MIN": des.min(),
-            "MEDIAN": des.median(),
-            "MAX": des.max(),
+            "Mean": des.mean(),
+            "Std": des.std(),
+            "Min": des.min(),
+            "Median": des.median(),
+            "Max": des.max(),
         }
         des = pd.concat(list(out.values()), axis=1)
         des.columns = pd.Index(list(out.keys()))
+        des = pd.concat([des.index.to_frame(), des], axis=1).reset_index(drop=True)
 
         return des
 
@@ -266,20 +283,29 @@ class Isokinetic1RMTest(LabTest):
         out = []
         for i, rep in enumerate(self.repetitions):
             new = rep.as_dataframe()
-            new.insert(0, ("REPETITION", "#"), np.tile(i + 1, new.shape[0]))
+            new.insert(0, ("Repetition", "#"), np.tile(i + 1, new.shape[0]))
+            new.insert(0, ("Side", "-"), np.tile(self.side, new.shape[0]))
+            new.insert(0, ("Product", "-"), np.tile(self.product.name, new.shape[0]))
             out += [new]
         return pd.concat(out, ignore_index=True)
 
     # * constructors
 
-    def __init__(self, product: BiostrengthProduct):
+    def __init__(
+        self,
+        product: BiostrengthProduct,
+        side: Literal["Bilateral", "Left", "Right"],
+    ):
 
         # check the input
         if not issubclass(product.__class__, BiostrengthProduct):
             raise ValueError("'product' must be a valid Biostrength Product.")
+        if not side in ["Bilateral", "Left", "Right"]:
+            raise ValueError("'side' must be any of 'Bilateral', 'Left', 'Right'")
 
         # get the raw data
         self._product = product  # type: ignore
+        self._side = side
         raw = product.as_dataframe()
 
         # get the repetitions
@@ -310,6 +336,10 @@ class Isokinetic1RMTest(LabTest):
             stops = [i[0] for i in stop_batches if i[0] > start]
             if len(stops) > 0:
                 stop = np.min(stops) + 1
-                self._repetitions += [self.product.slice(start, stop)]
+                self._repetitions += [self.product.slice(tarr[start], tarr[stop])]
         if len(self._repetitions) == 0:
             raise RuntimeError("No repetitions have been found.")
+        self.product.slice(
+            start_time=self.repetitions[0].time_s[0],
+            stop_time=self.repetitions[-1].time_s[-1],
+        )
