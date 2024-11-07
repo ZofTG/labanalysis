@@ -613,14 +613,24 @@ class SquatJumpTest(LabTest):
 
     summary_plot
         a plotly FigureWidget summarizing the results of the test
+
+    normative_values
+        a pandas DataFrame having one row for each parameter plus mean and
+        standard columns.
     """
 
     # * class variables
 
     _baseline: UprightStance
     _jumps: list[SquatJump]
+    _norms: pd.DataFrame
 
     # * attributes
+
+    @property
+    def normative_values(self):
+        """return the normative data for each parameter"""
+        return self._norms
 
     @property
     def baseline(self):
@@ -786,7 +796,7 @@ class SquatJumpTest(LabTest):
         return go.FigureWidget(fig)
 
     @property
-    def summary_plot(self):
+    def summary_plots(self):
         """return a plotly figurewidget highlighting the test summary"""
 
         # get the summary results in long format
@@ -1022,16 +1032,10 @@ def get_jump_features(jump: SquatJump, baseline: UprightStance):
     yflight = flight.markers.S2.Y.values.astype(float).flatten()
     height_s2 = float(np.max(yflight) - yflight[0])
 
-    # efficiency
-    con_pos = con.markers.S2.Y.values.astype(float).flatten()
-    vel_s2 = sp.winter_derivative1(con_pos, con_time)[-1]
-    efficiency = min(vel_s2, takeoff_vel) / max(vel_s2, takeoff_vel) * 100
-
     # get the output data
     lines = [
         ["Elevation", "cm", height_s2 * 100],
         ["Takeoff Velocity", "m/s", takeoff_vel],
-        ["Efficiency", "%", efficiency],
     ]
 
     # add EMG data

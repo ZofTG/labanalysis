@@ -604,7 +604,7 @@ class SideJumpTest(LabTest):
         return go.FigureWidget(fig)
 
     @property
-    def summary_plot(self):
+    def summary_plots(self):
         """return a plotly figurewidget highlighting the test summary"""
 
         # get the summary results in long format

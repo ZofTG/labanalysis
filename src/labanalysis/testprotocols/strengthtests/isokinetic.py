@@ -114,7 +114,7 @@ class Isokinetic1RMTest(LabTest):
         return self.peak_load * b1 + b0
 
     @property
-    def summary_plot(self):
+    def summary_plots(self):
         """return a plotly figurewidget summarizing the test outputs"""
 
         # generate the figure and the subplot grid

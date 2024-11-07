@@ -23,7 +23,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 import pandas as pd
-from plotly.graph_objects import FigureWidget
+import plotly.graph_objects as go
 
 from .. import messages
 
@@ -384,7 +384,7 @@ class LabTest(Protocol):
     """
 
     @property
-    def summary_plot(self) -> FigureWidget: ...
+    def summary_plots(self) -> go.FigureWidget: ...
 
     @property
     def summary_table(self) -> pd.DataFrame: ...
@@ -393,7 +393,7 @@ class LabTest(Protocol):
     def results_table(self) -> pd.DataFrame: ...
 
     @property
-    def results_plot(self) -> FigureWidget: ...
+    def results_plot(self) -> go.FigureWidget: ...
 
     def save(self, file_path: str):
         """
@@ -488,7 +488,7 @@ class TestBattery:
     @property
     def summary_plots(self):
         """return the summary plots from each test as dict"""
-        return {type(test).__name__: test.summary_plot for test in self.tests}
+        return {type(test).__name__: test.summary_plots for test in self.tests}
 
     @property
     def summary_table(self):

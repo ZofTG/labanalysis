@@ -20,7 +20,7 @@ def test_plank():
     """test the squatjump test"""
     print("\nTEST PLANK")
     file = join(dirname(__file__), "plank_data", "plank.tdf")
-    PlankTest.from_tdf_file(file).summary_plot.show()
+    PlankTest.from_tdf_file(file).summary_plots.show()
 
 
 def test_posture():

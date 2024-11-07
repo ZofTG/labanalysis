@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ...constants import G
+from os.path import dirname, join
 
 from ..frames import StateFrame
 from .upright import UprightStance
@@ -434,6 +435,12 @@ class PlankTest(ProneStance, LabTest):
                 "Unit": "%",
                 "Value": right.mean(),
             },
+            {
+                "Parameter": "CoP Lateral Displacement",
+                "Side": "-",
+                "Unit": "mm",
+                "Value": res.fRes.COP.mean(axis=0).X.values[0],
+            },
         ]
 
         # stability
@@ -455,32 +462,8 @@ class PlankTest(ProneStance, LabTest):
         return out
 
     @property
-    def summary_plot(self):
-        """return a figure highlighting the test results"""
-
-        # generate the figure and the subplot grid
-        fig = make_subplots(
-            rows=3,
-            cols=3,
-            specs=[
-                [{"rowspan": 3, "colspan": 2}, None, {}],
-                [None, None, {"rowspan": 2}],
-                [None, None, None],
-            ],
-            subplot_titles=[
-                "SWAY PLOT",
-                "",
-                "LEFT/RIGHT<br>SYMMETRY",
-            ],
-            shared_xaxes=False,
-            shared_yaxes=False,
-            horizontal_spacing=0.1,
-            vertical_spacing=0.15,
-            row_titles=None,
-            column_titles=None,
-            x_title=None,
-            y_title=None,
-        )
+    def summary_plots(self):
+        """return dict with summary figures highlighting the test results"""
 
         # plot the sway
         results = self.results_table
@@ -488,14 +471,14 @@ class PlankTest(ProneStance, LabTest):
         cop_coords.columns = pd.Index([i[0] for i in cop_coords])
         cop_coords.loc[cop_coords.index, "Y"] -= cop_coords.Y.mean()
         rng1 = [cop_coords.min().min(), cop_coords.max().max()]
+        fig = go.Figure()
         fig.add_trace(
-            row=1,
-            col=1,
-            trace=go.Scatter(
+            go.Scatter(
                 x=cop_coords.X.values.astype(float).flatten(),
                 y=cop_coords.Y.values.astype(float).flatten(),
                 name="Weight Displacement",
                 mode="lines",
+                line_color=px.colors.qualitative.Plotly[0],
                 opacity=0.5,
                 line_width=2,
             ),
@@ -504,15 +487,14 @@ class PlankTest(ProneStance, LabTest):
         # plot the mean
         avg = cop_coords.mean(axis=0)
         fig.add_trace(
-            row=1,
-            col=1,
-            trace=go.Scatter(
+            go.Scatter(
                 x=[avg.X],
                 y=[avg.Y],
                 name="Mean Position",
                 mode="markers",
+                marker_color=px.colors.qualitative.Plotly[4],
                 opacity=1,
-                marker_size=15,
+                marker_size=20,
             ),
         )
 
@@ -538,52 +520,71 @@ class PlankTest(ProneStance, LabTest):
             row=1,  # type: ignore
         )
 
-        # plot the left/right distribution
-        summ = self.summary_table
-        leftright_idx = (summ.Side == "Left") | (summ.Side == "Right")
-        leftright_df = summ.loc[leftright_idx]
-        leftright_df.insert(0, "Text", [f"{i:0.1f}%" for i in leftright_df.Value])
-        rng2 = [0.95 * leftright_df.Value.min(), 1.05 * leftright_df.Value.max()]
-        fig1 = px.bar(
-            data_frame=leftright_df,
-            x="Side",
-            y="Value",
-            text="Text",
-            barmode="group",
-        )
-        fig1.update_traces(showlegend=False)
-        for trace in fig1.data:
-            fig.add_trace(row=2, col=3, trace=trace)
+        # get the normative values
+        norm_file = join(dirname(dirname(__file__)), "normative_values.xlsx")
+        norms = pd.read_excel(io=norm_file, sheet_name="PlankTest")
+        xref, yref = norms[["X", "Y"]].values.astype(float).flatten()
 
-        # add horizontal lines
-        fig.add_hline(
-            y=50,
-            line_dash="dash",
-            line_width=2,
-            opacity=0.5,
-            showlegend=False,
-            row=2,  # type: ignore
-            col=3,  # type: ignore
+        # get the figure ranges
+        amax = cop_coords.abs().max(axis=0).max()
+        amax = float(np.max([amax, avg.Y + yref, avg.X + xref]))
+        rng = [-amax, amax]
+
+        # plot the normative bands
+        colors = {
+            "Poor": px.colors.qualitative.Plotly[1],
+            "Normal": px.colors.qualitative.Plotly[2],
+        }
+        fig.add_shape(
+            type="rect",
+            x0=rng[0],
+            x1=rng[1],
+            y0=rng[0],
+            y1=rng[1],
+            fillcolor=colors["Poor"],
+            showlegend=True,
+            line_width=0,
+            name="Poor stability range",
+            opacity=0.1,
+        )
+        fig.add_shape(
+            type="circle",
+            x0=avg.X - xref,
+            x1=avg.X + xref,
+            y0=avg.Y - yref,
+            y1=avg.Y + yref,
+            fillcolor=colors["Normal"],
+            showlegend=True,
+            line_width=None,
+            name="Normal stability range",
+            opacity=0.3,
         )
 
         # update the layout
-        fig.update_yaxes(col=3, row=2, title="%", range=rng2)
-        fig.update_yaxes(row=1, col=1, title="mm", range=rng1)
-        fig.update_xaxes(row=1, col=1, title="mm", range=rng1)
+        ntraces = int(len(fig.data))  # type: ignore
+        for i in range(ntraces):
+            fig.data[i].update(zorder=int(ntraces - i - 1))  # type: ignore
         fig.update_layout(
             template="simple_white",
-            height=800,
-            width=800,
+            title="Plank Test",
             yaxis={"scaleanchor": "x", "scaleratio": 1},
             legend=dict(
-                x=0.7,
-                y=1,
-                xanchor="left",
+                x=0.95,
+                y=0.95,
+                xanchor="right",
                 yanchor="top",
             ),
+            height=800,
+            width=800,
         )
+        fig.update_xaxes(range=rng, title="mm")
+        fig.update_yaxes(range=rng, title="mm")
 
-        return go.FigureWidget(fig)
+        # plot the left/right distribution
+        summ = self.summary_table
+        symm = summ.loc[summ.Parameter == "CoP Lateral Displacement"]
+
+        return {"Sway": go.FigureWidget(fig)}
 
     # * methods
 
