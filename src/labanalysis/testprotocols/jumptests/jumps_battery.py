@@ -133,7 +133,7 @@ class JumpTestBattery(TestBattery):
             fig.update_yaxes(title="", visible=False, range=[vmin, vmax])
             fig.update_yaxes(visible=True, col=1)
             fig.update_xaxes(title="", showticklabels=False, matches=None)
-            fig.update_layout(title=parameter)
+            fig.update_layout(title=parameter, template="simple_white")
             out[str(parameter)] = FigureWidget(fig)
 
         return out
