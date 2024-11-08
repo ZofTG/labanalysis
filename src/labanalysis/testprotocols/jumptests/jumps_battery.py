@@ -124,14 +124,21 @@ class JumpTestBattery(TestBattery):
 
                 # prepare the data
                 for side, dfs in dft.groupby("Side"):
+                    rnk = "Normal"
                     if str(parameter).endswith("Imbalance"):
                         xarr = dfs.Best.values.astype(float)
                         yarr = dfs.Side.values.astype(str)
                         orientation = "h"
+                        if xarr < avg - std or xarr > avg + std:
+                            rnk = "Poor"
                     else:
                         yarr = dfs.Best.values.astype(float)
                         xarr = dfs.Side.values.astype(str)
                         orientation = "v"
+                        if yarr < avg - std:
+                            rnk = "Poor"
+                        elif yarr > avg + std:
+                            rnk = "Good"
                     fig.add_trace(
                         row=1,
                         col=i + 1,
@@ -139,10 +146,10 @@ class JumpTestBattery(TestBattery):
                             x=xarr,
                             y=yarr,
                             text=dfs.Text.values,
-                            marker_color=colors[dfs.Rank.values.astype(str)[0]],
+                            marker_color=colors[rnk],
                             marker_pattern_shape=patterns[str(side)],
                             marker_cornerradius="30%",
-                            marker_line_color=colors[dfs.Rank.values.astype(str)[0]],
+                            marker_line_color=colors[rnk],
                             marker_line_width=3,
                             name=side,
                             showlegend=False,

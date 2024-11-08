@@ -465,15 +465,47 @@ class PlankTest(ProneStance, LabTest):
     def summary_plots(self):
         """return dict with summary figures highlighting the test results"""
 
-        # plot the sway
+        # get sway data
         results = self.results_table
         cop_coords = results.fRes.COP
         cop_coords.columns = pd.Index([i[0] for i in cop_coords])
         cop_coords.loc[cop_coords.index, "Y"] -= cop_coords.Y.mean()
-        rng1 = [cop_coords.min().min(), cop_coords.max().max()]
-        fig = go.Figure()
+        avg = cop_coords.mean(axis=0)
+
+        # get the normative values
+        norm_file = join(dirname(dirname(__file__)), "normative_values.xlsx")
+        norms = pd.read_excel(io=norm_file, sheet_name="PlankTest")
+        xref, yref = norms[["X", "Y"]].values.astype(float).flatten()
+        colors = {
+            "Poor Stability": px.colors.qualitative.Plotly[1],
+            "Normal Stability": px.colors.qualitative.Plotly[2],
+            "Poor Symmetry": px.colors.qualitative.Plotly[3],
+            "Normal Symmetry": px.colors.qualitative.Plotly[4],
+        }
+
+        # get the left/right symmetry data
+        ref = norms["Symmetry"].values.astype(float).flatten()[0]
+        rank = ("Poor" if avg.X < -ref or avg.X > ref else "Normal") + " Symmetry"
+
+        # get the figure ranges
+        amax = cop_coords.abs().max(axis=0).max()
+        amax = float(np.max([amax, avg.Y + yref, avg.X + xref]))
+
+        # prepare the output figure
+        fig = make_subplots(
+            rows=4,
+            cols=1,
+            shared_xaxes=True,
+            shared_yaxes=False,
+            subplot_titles=["Stability Analysis", "Left/Right Symmetry"],
+            specs=[[{"rowspan": 3}], [None], [None], [{}]],
+        )
+
+        # plot the sway
         fig.add_trace(
-            go.Scatter(
+            row=1,
+            col=1,
+            trace=go.Scatter(
                 x=cop_coords.X.values.astype(float).flatten(),
                 y=cop_coords.Y.values.astype(float).flatten(),
                 name="Weight Displacement",
@@ -481,13 +513,15 @@ class PlankTest(ProneStance, LabTest):
                 line_color=px.colors.qualitative.Plotly[0],
                 opacity=0.5,
                 line_width=2,
+                showlegend=True,
             ),
         )
 
         # plot the mean
-        avg = cop_coords.mean(axis=0)
         fig.add_trace(
-            go.Scatter(
+            row=1,
+            col=1,
+            trace=go.Scatter(
                 x=[avg.X],
                 y=[avg.Y],
                 name="Mean Position",
@@ -495,6 +529,7 @@ class PlankTest(ProneStance, LabTest):
                 marker_color=px.colors.qualitative.Plotly[4],
                 opacity=1,
                 marker_size=20,
+                showlegend=True,
             ),
         )
 
@@ -520,32 +555,20 @@ class PlankTest(ProneStance, LabTest):
             row=1,  # type: ignore
         )
 
-        # get the normative values
-        norm_file = join(dirname(dirname(__file__)), "normative_values.xlsx")
-        norms = pd.read_excel(io=norm_file, sheet_name="PlankTest")
-        xref, yref = norms[["X", "Y"]].values.astype(float).flatten()
-
-        # get the figure ranges
-        amax = cop_coords.abs().max(axis=0).max()
-        amax = float(np.max([amax, avg.Y + yref, avg.X + xref]))
-        rng = [-amax, amax]
-
         # plot the normative bands
-        colors = {
-            "Poor": px.colors.qualitative.Plotly[1],
-            "Normal": px.colors.qualitative.Plotly[2],
-        }
         fig.add_shape(
             type="rect",
-            x0=rng[0],
-            x1=rng[1],
-            y0=rng[0],
-            y1=rng[1],
-            fillcolor=colors["Poor"],
+            x0=-amax,
+            x1=amax,
+            y0=-amax,
+            y1=amax,
+            fillcolor=colors["Poor Stability"],
             showlegend=True,
             line_width=0,
-            name="Poor stability range",
+            name="Poor Stability",
             opacity=0.1,
+            row=1,
+            col=1,
         )
         fig.add_shape(
             type="circle",
@@ -553,38 +576,168 @@ class PlankTest(ProneStance, LabTest):
             x1=avg.X + xref,
             y0=avg.Y - yref,
             y1=avg.Y + yref,
-            fillcolor=colors["Normal"],
+            fillcolor=colors["Normal Stability"],
             showlegend=True,
             line_width=None,
-            name="Normal stability range",
+            name="Normal Stability",
             opacity=0.3,
+            row=1,
+            col=1,
+        )
+
+        # plot the left/right symmetry
+        fig.add_trace(
+            row=4,
+            col=1,
+            trace=go.Bar(
+                x=[avg.X],
+                y=["Y"],
+                text=[str(abs(avg.X))[:5] + " mm"],
+                marker_color=colors[rank],
+                marker_pattern_shape="/",
+                marker_cornerradius="30%",
+                marker_line_color=colors[rank],
+                marker_line_width=3,
+                showlegend=False,
+                opacity=1,
+                orientation="h",
+                textfont_size=16,
+            ),
+        )
+
+        # plot the normative areas
+        fig.add_vrect(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x0=-ref,
+            x1=+ref,
+            name="Normal Symmetry",
+            showlegend=True,
+            fillcolor=colors["Normal Symmetry"],
+            line_width=0,
+            opacity=0.1,
+        )
+        fig.add_vrect(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x0=-amax,
+            x1=-ref,
+            name="Poor Symmetry",
+            showlegend=True,
+            fillcolor=colors["Poor Symmetry"],
+            line_width=0,
+            opacity=0.1,
+        )
+        fig.add_vrect(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x0=ref,
+            x1=amax,
+            name="Poor Symmetry",
+            showlegend=False,
+            fillcolor=colors["Poor Symmetry"],
+            line_width=0,
+            opacity=0.1,
+        )
+        fig.add_vline(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x=0,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color="black",
+            opacity=0.5,
+        )
+        fig.add_vline(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x=-ref,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color=colors["Normal Symmetry"],
+            opacity=0.5,
+        )
+        fig.add_vline(
+            row=4,  # type: ignore
+            col=1,  # type: ignore
+            x=ref,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color=colors["Normal Symmetry"],
+            opacity=0.5,
+        )
+        fig.add_annotation(
+            row=4,
+            col=1,
+            text="Left",
+            x=-amax,
+            y=1,
+            xref="x",
+            yref="y",
+            align="left",
+            valign="top",
+            xanchor="left",
+            yanchor="top",
+            font_size=16,
+            showarrow=False,
+        )
+        fig.add_annotation(
+            row=4,
+            col=1,
+            text="Right",
+            x=amax,
+            y=1,
+            xref="x",
+            yref="y",
+            align="right",
+            valign="top",
+            xanchor="right",
+            yanchor="top",
+            font_size=16,
+            showarrow=False,
         )
 
         # update the layout
-        ntraces = int(len(fig.data))  # type: ignore
-        for i in range(ntraces):
-            fig.data[i].update(zorder=int(ntraces - i - 1))  # type: ignore
         fig.update_layout(
             template="simple_white",
             title="Plank Test",
             yaxis={"scaleanchor": "x", "scaleratio": 1},
             legend=dict(
-                x=0.95,
-                y=0.95,
-                xanchor="right",
+                x=1,
+                y=1,
+                xanchor="left",
                 yanchor="top",
             ),
-            height=800,
+            height=(800 - 100) / 3 * 4,
             width=800,
         )
-        fig.update_xaxes(range=rng, title="mm")
-        fig.update_yaxes(range=rng, title="mm")
+        fig.update_xaxes(
+            range=[-amax, amax], title="mm", showticklabels=True, row=1, col=1
+        )
+        fig.update_yaxes(range=[-amax, amax], title="mm", row=1, col=1)
+        fig.update_xaxes(range=[-amax, amax], title="mm", row=4, col=1)
+        fig.update_yaxes(visible=False, title="", row=4, col=1)
 
-        # plot the left/right distribution
-        summ = self.summary_table
-        symm = summ.loc[summ.Parameter == "CoP Lateral Displacement"]
+        # update the zorder
+        ntraces = int(len(fig.data))  # type: ignore
+        for i in range(ntraces):
+            fig.data[i].update(  # type: ignore
+                zorder=int(ntraces - i - 1),
+            )
+        fig.update_traces(
+            row=4,
+            col=1,
+            marker_pattern_fillmode="replace",
+            textposition="outside",
+        )
 
-        return {"Sway": go.FigureWidget(fig)}
+        return fig
 
     # * methods
 

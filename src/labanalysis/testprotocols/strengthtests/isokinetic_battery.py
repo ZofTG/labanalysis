@@ -2,6 +2,7 @@
 
 #! IMPORTS
 
+from os.path import dirname, join
 
 import numpy as np
 import plotly.express as px
@@ -46,7 +47,7 @@ class Isokinetic1RMTestBattery(TestBattery):
         tab = tab.loc[tab.Parameter == "1RM"]
         rm1 = tab.groupby(["Product", "Side", "Unit"]).max()[["Max"]]
         rm1 = pd.concat([rm1.index.to_frame(), rm1], axis=1).reset_index(drop=True)
-        rm1.loc[rm1.index, "Text"] = rm1.Max.map(lambda x: str(x)[:5])
+        rm1.loc[rm1.index, "Text"] = rm1.Max.map(lambda x: str(x)[:5] + " kg")
         for grp, dfr in rm1.groupby(["Product", "Side", "Unit"]):
             prod, side, unit = grp
             sub = tab.loc[tab.Product == prod]
@@ -103,7 +104,7 @@ class Isokinetic1RMTestBattery(TestBattery):
                     mode="lines",
                     fill="tozeroy",
                     opacity=0.4,
-                    line_width=6,
+                    line_width=2,
                     line_color=px.colors.qualitative.Plotly[i],
                 ),
             )
@@ -115,6 +116,8 @@ class Isokinetic1RMTestBattery(TestBattery):
             y="Max",
             text="Text",
             barmode="group",
+            pattern_shape="Label",
+            pattern_shape_sequence=["/", "x", "-"],
         )
         fig1.update_traces(
             showlegend=False,
@@ -123,17 +126,105 @@ class Isokinetic1RMTestBattery(TestBattery):
         for i, trace in enumerate(fig1.data):
             fig.add_trace(row=1, col=3, trace=trace)
 
+        # get the normative values
+        colors = {
+            "Poor": px.colors.qualitative.Plotly[1],
+            "Normal": px.colors.qualitative.Plotly[2],
+            "Good": px.colors.qualitative.Plotly[3],
+        }
+        norm_file = join(dirname(dirname(__file__)), "normative_values.xlsx")
+        norms = pd.read_excel(io=norm_file, sheet_name="Isokinetic1RMTest")
+        prod = rm1.Product.values[0]
+        avg, std = norms.loc[norms.Product == prod][["mean", "std"]].values.flatten()
+
+        # get the values range
+        vmin = min(rm1.Max.min() * 0.9, avg - 2 * std)
+        vmax = max(rm1.Max.max() * 1.1, avg + 2 * std)
+
+        # this is any other case
+        fig.add_hrect(
+            y0=vmin,
+            y1=avg - std,
+            name="Poor",
+            showlegend=bool(i == 0),
+            fillcolor=colors["Poor"],
+            line_width=0,
+            opacity=0.1,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+        fig.add_hline(
+            y=avg - std,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color=colors["Poor"],
+            opacity=0.5,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+        fig.add_hrect(
+            y0=avg - std,
+            y1=avg + std,
+            name="Normal",
+            showlegend=bool(i == 0),
+            fillcolor=colors["Normal"],
+            line_width=0,
+            opacity=0.1,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+        fig.add_hline(
+            y=avg,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color=colors["Normal"],
+            opacity=0.5,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+        fig.add_hrect(
+            y0=avg + std,
+            y1=vmax,
+            name="Good",
+            showlegend=bool(i == 0),
+            fillcolor=colors["Good"],
+            line_width=0,
+            opacity=0.1,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+        fig.add_hline(
+            y=avg + std,
+            name="line",
+            showlegend=False,
+            line_width=2,
+            line_dash="dash",
+            line_color=colors["Good"],
+            opacity=0.5,
+            row=1,  # type: ignore
+            col=3,  # type: ignore
+        )
+
+        # update the layout
+        fig.update_traces(
+            row=1,
+            col=3,
+            zorder=0,
+            marker_pattern_fillmode="replace",
+            textposition="outside",
+        )
+
         # update the layout and return
         fig.update_yaxes(title="kg")
         fig.update_yaxes(
             col=1, range=[tracks.Load.min() * 0.9, tracks.Load.max() * 1.1]
         )
-        fig.update_yaxes(col=3, range=[rm1.Max.min() * 0.9, rm1.Max.max() * 1.1])
+        fig.update_yaxes(col=3, range=[vmin, vmax])
         fig.update_xaxes(row=1, col=1, title="Repetition time (s)")
-        fig.update_layout(
-            template="simple_white",
-            height=400,
-            width=800,
-        )
+        fig.update_layout(template="simple_white", height=400, width=800)
 
         return go.FigureWidget(fig)

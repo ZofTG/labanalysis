@@ -331,7 +331,11 @@ class Isokinetic1RMTest(LabTest):
         stop_batches = sp.continuous_batches(parr < 0.02 * np.min(parr))
         self._repetitions = []
         for start in starts:
-            stops = [i[0] for i in stop_batches if i[0] > start]
+            stops = [
+                i[-1]
+                for i in stop_batches
+                if i[0] > start and tarr[i[-1]] - tarr[i[0]] > 1
+            ]
             if len(stops) > 0:
                 stop = np.min(stops) + 1
                 self._repetitions += [self.product.slice(tarr[start], tarr[stop])]
