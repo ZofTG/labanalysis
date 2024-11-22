@@ -11,7 +11,13 @@ import pandas as pd
 
 from scipy.signal import detrend
 
-from ..signalprocessing import continuous_batches, fillna, butterworth_filt
+from ..signalprocessing import (
+    continuous_batches,
+    fillna,
+    butterworth_filt,
+    find_peaks,
+    psd,
+)
 from labio import read_tdf
 
 
@@ -888,40 +894,71 @@ class GaitTest:
             vlc -= vlc.min(axis=0)
             vrc -= vrc.min(axis=0)
 
+            # get the scaled vertical displacement
+            vlc /= vlc.max(axis=0)
+            vrc /= vrc.max(axis=0)
+
             # get the mean values (they are used for mid-stance detection)
             mlc = vlc.mean(axis=1)
             mrc = vrc.mean(axis=1)
 
-            # get the batches of time with part of the feet on ground
-            glc = vlc < self._height_threshold
-            grc = vrc < self._height_threshold
-            blc = continuous_batches(glc.any(axis=1).values.astype(bool))
-            brc = continuous_batches(grc.any(axis=1).values.astype(bool))
+            # get the location of the local minima along the relevant axes
+            def get_local_minima(arr: np.ndarray, time: np.ndarray):
 
-            # exclude those batches that start at the beginning of the data
-            # acquisition or are continuning at the end of the data acquisition
-            if len(blc) > 0:
-                if blc[0][0] == 0:
-                    blc = blc[1:]
-                if blc[-1][-1] >= len(vlc) - 1:
-                    blc = blc[:-1]
-            if len(brc) > 0:
-                if brc[0][0] == 0:
-                    brc = brc[1:]
-                if brc[-1][-1] >= len(vrc) - 1:
-                    brc = brc[:-1]
+                # rescale the array to 0-1
+                scaled = (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
 
-            # get the events
-            time = self.coordinates.index.to_numpy()
-            evts_map = {
-                "FS LEFT": [time[i[0]] for i in blc],
-                "FS RIGHT": [time[i[0]] for i in brc],
-                "MS LEFT": [time[np.argmin(mlc.iloc[i]) + i[0]] for i in blc],
-                "MS RIGHT": [time[np.argmin(mrc.iloc[i]) + i[0]] for i in brc],
-                "TO LEFT": [time[i[-1]] for i in blc],
-                "TO RIGHT": [time[i[-1]] for i in brc],
-            }
-            evts_map = {i: np.array(j) for i, j in evts_map.items()}
+                # get the local minima lower than the height threshold
+                mins = find_peaks(-scaled, height=-0.1)
+
+                # get the mean step time
+                fsamp = float(1 / np.mean(np.diff(time)))
+                frq, pow = psd(scaled, fsamp)
+                ffrq = frq[np.argmax(pow)]
+                step_time = 1 / ffrq
+
+                # pack the local minima in groups separated by half of the
+                # step time
+                dsamples = int(step_time * fsamp / 3)
+                diffs = np.diff(mins)
+                diffs = np.concatenate([[diffs[0]], diffs])
+                locs = mins[diffs > dsamples]
+                times = np.array([time[i] for i in locs]).astype(float)
+                return times
+
+            evts_map = {}
+            evts_map["FS LEFT"] = get_local_minima(
+                arr=(
+                    vlc[[i for i in ["Heel", "Mid"] if i in vlc.columns]]
+                    .mean(axis=1)
+                    .values.astype(float)
+                ),
+                time=vlc.index.to_numpy(),
+            )
+            evts_map["FS RIGHT"] = get_local_minima(
+                arr=(
+                    vrc[[i for i in ["Heel", "Mid"] if i in vrc.columns]]
+                    .mean(axis=1)
+                    .values.astype(float)
+                ),
+                time=vlc.index.to_numpy(),
+            )
+            evts_map["MS LEFT"] = get_local_minima(
+                arr=mlc.values.astype(float),
+                time=mlc.index.to_numpy(),
+            )
+            evts_map["MS RIGHT"] = get_local_minima(
+                arr=mrc.values.astype(float),
+                time=mrc.index.to_numpy(),
+            )
+            evts_map["TO LEFT"] = get_local_minima(
+                arr=vlc.Toe.values.astype(float),
+                time=vlc.index.to_numpy(),
+            )
+            evts_map["TO RIGHT"] = get_local_minima(
+                arr=vrc.Toe.values.astype(float),
+                time=vrc.index.to_numpy(),
+            )
             self._extract_steps(evts_map)
 
     def _extract_steps(
@@ -976,7 +1013,7 @@ class GaitTest:
         lmidfoot: pd.DataFrame | None = None,
         rmidfoot: pd.DataFrame | None = None,
         preprocess: bool = True,
-        height_thresh: float | int = 0.02,
+        height_thresh: float | int = 0.1,
         force_thresh: float | int = 30,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
     ):
@@ -1099,7 +1136,7 @@ class GaitTest:
         ltoe_label: str | None = None,
         lmid_label: str | None = None,
         rmid_label: str | None = None,
-        height_thresh: float | int = 0.02,
+        height_thresh: float | int = 0.1,
         force_thresh: float | int = 30,
     ):
         """

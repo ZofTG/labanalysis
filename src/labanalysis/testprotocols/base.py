@@ -21,7 +21,6 @@ from datetime import date, datetime
 from os.path import exists
 from typing import Protocol, runtime_checkable
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -368,34 +367,276 @@ class LabTest(Protocol):
     """
     abstract class defining the general methods expected from a test
 
-    Attributes
+    Methods
     -------
-    summary_plot
-        return a plotly figure widget highlighting the test' results.
+    summary
+        return a summary of the test results both as:
+            * plotly FigureWidget
+            * pandas dataframe
 
-    results_plot
-        return a plotly figure widget summarizing the test results.
+    results
+        return the "raw" test results both as:
+            * plotly FigureWidget
+            * pandas dataframe
 
-    summary_table
-        return a pandas dataframe containing the summary data.
+    save
+        a method allowing the saving of the data in an appropriate format.
 
-    results_table
-        return a pandas dataframe containing the test results.
+    load
+        a class method to load a LabTest object saved in its own format.
     """
 
-    @property
-    def summary_plots(self) -> go.FigureWidget: ...
+    def _make_summary_table(
+        self,
+        normative_intervals: dict[
+            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
+        ] = {},
+    ):
+        """
+        make the table defining the summary results.
 
-    @property
-    def summary_table(self) -> pd.DataFrame: ...
+        Parameters
+        ----------
+        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]]
+            the parameters on which the normative intervals have to be
+            represented.
+        """
+        # get the summary results in long format
+        out = self._get_jump_features()
 
-    @property
-    def results_table(self) -> pd.DataFrame: ...
+        # add the normative bands
+        for (jump, param), dfr in out.groupby(["Jump", "Parameter"]):
 
-    @property
-    def results_plot(self) -> go.FigureWidget: ...
+            # set the normative band
+            if str(param) in list(normative_intervals.keys()):
+                norms = normative_intervals[str(param)]
+                val = dfr.Value.values[0]
+                for lvl, norm in norms.items():
+                    vals = norm[0] if isinstance(norm[0], list) else [norm[0]]
+                    for low, upp in vals:  # type: ignore
+                        if val >= low and val <= upp:
+                            out.loc[dfr.index, "Interpretation"] = lvl
+                            out.loc[dfr.index, "Color"] = norm[-1]
+                            break
 
-    def save(self, file_path: str):
+        return out
+
+    def _make_summary_plot(
+        self,
+        data_frame: pd.DataFrame,
+        param_col: str,
+        value_col: str,
+        xaxis_col: str | None = None,
+        normative_intervals: dict[
+            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
+        ] = {},
+    ):
+        """
+        make the plot defining the summary results of the test
+
+        Parameters
+        ----------
+        data_frame : pd.DataFrame
+            the summary dataframe
+
+        param_col : str
+            the label of the column in data_frame referring to the parameters
+            to be plotted
+
+        value_col : str
+            the label of the column in data_frame referring to the values
+            corresponding to the height of each bar
+
+        xaxis_col : str | None, optional
+            the label of the column in data_frame referring to the bars to be
+            plotted. If None, this parameter is ignored.
+
+        normative_intervals:dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]], optional
+            the parameters on which the normative intervals have to be
+            represented.
+
+        Returns
+        -------
+        fig: FigureWidget
+            the output figure
+        """
+
+        def check_col(data_frame: pd.DataFrame, col: object, lbl: str):
+            if not isinstance(data_frame, pd.DataFrame):
+                raise ValueError("data_frame must be a pandas DataFrame")
+            msg = f"{lbl} must be a string defining one column in data_frame."
+            if not isinstance(col, str):
+                raise ValueError(msg)
+            if not any([i == col for i in data_frame.columns]):
+                raise ValueError(msg)
+
+        # check the inputs
+        check_col(data_frame, param_col, "param_col")
+        check_col(data_frame, value_col, "value_col")
+        if xaxis_col is not None:
+            check_col(data_frame, xaxis_col, "xaxis_col")
+
+        # build the output figure
+        parameters = data_frame[param_col].unique()
+        fig = make_subplots(
+            rows=1,
+            cols=len(parameters),
+            subplot_titles=parameters,
+            shared_xaxes=False,
+            shared_yaxes=False,
+            horizontal_spacing=0.1,
+            row_titles=None,
+            column_titles=parameters.tolist(),
+            x_title=None,
+            y_title=None,
+        )
+
+        # populate the figure
+        for i, parameter in enumerate(parameters):
+
+            # get the data and the normative bands
+            dfr = data_frame.loc[data_frame[param_col] == parameter]
+            if any([i == parameter for i in normative_intervals.keys()]):
+                norms = normative_intervals[parameter]
+            else:
+                norms = {}
+
+            # get a bar plot with optional normative bands
+            xval = "Jump" if xaxis_col is None else xaxis_col
+            fig0 = bars_with_normative_bands(
+                data_frame=dfr,
+                yarr=xval if parameter.endswith("Imbalance") else value_col,
+                xarr=value_col if parameter.endswith("Imbalance") else xval,
+                orientation="h" if parameter.endswith("Imbalance") else "v",
+                unit=dfr.Unit.values[0],
+                intervals=norms,  # type: ignore
+            )[0]
+
+            # add the figure data and annotations to the proper figure
+            for trace in fig0.data:
+                fig.add_trace(row=1, col=i + 1, trace=trace)
+            for shape in fig0.layout["shapes"]:  # type: ignore
+                showlegend = [
+                    i["name"] == shape["name"]  # type: ignore
+                    for i in fig.layout["shapes"]  # type: ignore
+                ]
+                showlegend = not any(showlegend)
+                shape.update(  # type: ignore
+                    legendgroup=shape["name"],  # type: ignore
+                    showlegend=showlegend,
+                )
+            for shape in fig0.layout.shapes:  # type: ignore
+                fig.add_shape(shape, row=1, col=i + 1)
+            if parameter.endswith("Imbalance"):
+                fig.update_xaxes(
+                    row=1,
+                    col=i + 1,
+                    range=fig0.layout["xaxis"].range,  # type: ignore
+                )
+            else:
+                fig.update_yaxes(
+                    row=1,
+                    col=i + 1,
+                    range=fig0.layout["yaxis"].range,  # type: ignore
+                )
+        return go.FigureWidget(fig)
+
+    def _check_norms(self, normative_intervals: object):
+        """check the normative intervals architecture"""
+
+        if not isinstance(normative_intervals, dict):
+            raise ValueError("normative_intervals must be a dict")
+
+        for key, norms in normative_intervals.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{key} must be a str.")
+            if not isinstance(norms, dict):
+                raise ValueError(f"the value of {key} must be a dict object.")
+            for lvl, vals in norms.items():
+                if not isinstance(lvl, str):
+                    raise ValueError(f"{lvl} must be a str.")
+                if not isinstance(vals, tuple):
+                    msg = f"the value of {key}-{lvl} must be a tuple"
+                    raise ValueError(msg)
+                msg = "the first and second values of each normative set "
+                msg += "must be a float, int or a list of float/int"
+                refs = vals[0] if isinstance(vals[0], list) else [vals[0]]
+                for val in refs:
+                    if not all([isinstance(i, (float, int)) for i in val]):
+                        raise ValueError(msg)
+                if (
+                    isinstance(vals[0], (float, int))
+                    != isinstance(vals[1], (float, int))
+                ) or (
+                    isinstance(vals[0], list)
+                    and isinstance(vals[1], list)
+                    and len(vals[0]) != len(vals[1])
+                ):
+                    msg = f"the first two elements of the {key}-{lvl} pair "
+                    msg += "must have the same number of elements."
+                    raise ValueError(msg)
+                if not isinstance(vals[1], str):
+                    msg = f"the third value of {key}-{lvl} "
+                    msg += "must be a string defining a valid color."
+                    raise ValueError(msg)
+
+    def results(self):
+        """
+        return a plotly figurewidget highlighting the resulting data
+        and a table with the resulting outcomes as pandas DataFrame.
+        """
+        raw = self._make_results_table()
+        fig = self._make_results_plot(raw)
+        return fig, raw
+
+    def summary(
+        self,
+        normative_intervals: dict[
+            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
+        ] = {},
+    ):
+        """
+        return a plotly bar plot highlighting the test summary and a table
+        reporting the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]],
+            one or more key-valued dictionaries defining the properties
+            returned by the test. The keys should be:
+                "Elevation"
+                "Takeoff velocity"
+                "<muscle> Imbalance"
+            Where <muscle> denotes an (optional) investigated muscle.
+
+            For each key, a dict shall be provided as value having structure:
+                band_name: (lower_bound, upper_bound, color)
+
+            Here the upper and lower bounds should be considered as inclusive
+            of the provided values, and the color should be a string object
+            that can be interpreted as color.
+
+        Returns
+        -------
+        fig: plotly FigureWidget
+            return a plotly FigureWidget object summarizing the results of the
+            test.
+
+        tab: pandas DataFrame
+            return a pandas dataframe with a summary of the test results.
+        """
+        self._check_norms(normative_intervals)
+        res = self._make_summary_table(normative_intervals)
+        fig = self._make_summary_plot(
+            data_frame=res,
+            param_col="Parameter",
+            value_col="Value",
+            xaxis_col=None,
+            normative_intervals=normative_intervals,
+        )
+        return fig, res
+
+    def save(self, file_path: str) -> None:
         """
         save the test to the input file
 
@@ -452,26 +693,29 @@ class LabTest(Protocol):
             raise RuntimeError(f"an error occurred importing {file_path}.")
 
 
-class TestBattery:
+@runtime_checkable
+class TestBattery(Protocol):
     """
     class allowing to deal with multiple lab tests
 
     Attributes
+    ----------
+        tests
+            the list of tests being part of the battery.
+
+    Methods
     -------
-    results_plots
-        return a plotly figure widget showing the test' results.
+    summary
+        return a summary of the test battery results both as:
+            * dict with output parameters name as key and plotly FigureWidget
+            as values
+            * pandas dataframe.
 
-    summary_plots
-        return a plotly figure widget highlighting the tests results.
+    save
+        a method allowing the saving of the data in an appropriate format.
 
-    summary_table
-        return a pandas dataframe containing the summary data.
-
-    results_table
-        return a pandas dataframe containing the test results.
-
-    tests
-        the list of tests being part of the battery.
+    load
+        a class method to load a LabTest object saved in its own format.
     """
 
     # * class variables
@@ -485,38 +729,65 @@ class TestBattery:
         """return the list of tests being part of the test battery"""
         return self._tests
 
-    @property
-    def summary_plots(self):
-        """return the summary plots from each test as dict"""
-        return {type(test).__name__: test.summary_plots for test in self.tests}
+    def summary(
+        self, **normative_intervals
+    ) -> tuple[dict[str, go.FigureWidget], pd.DataFrame]: ...
 
-    @property
-    def summary_table(self):
-        """return a table with summary statistics from each test"""
-        # get the required metrics from each jump
-        out = []
-        for test in self.tests:
-            table = test.summary_table
-            table = pd.concat([table.index.to_frame(), table], axis=1)
-            table.insert(0, "Test", np.tile(type(test).__name__, table.shape[0]))
-            out += [table]
-        return pd.concat(out, ignore_index=True)
+    def save(self, file_path: str) -> None:
+        """
+        save the test battery to the input file
 
-    @property
-    def results_table(self):
-        """return a dataframe containing the results of each test"""
-        out = []
-        for test in self.tests:
-            test_type = type(test).__name__
-            tab = test.results_table
-            tab.insert(0, "Test", np.tile(test_type, tab.shape[0]))
-            out += [tab]
-        return pd.concat(out, ignore_index=True)
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test battery name. If this is not the case, the appropriate
+            extension is appended.
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + self.__class__.__name__.lower()
+        if not file_path.endswith(extension):
+            file_path += extension
+        overwrite = False
+        while exists(file_path) and not overwrite:
+            overwrite = messages.askyesnocancel(
+                title="File already exists",
+                message="the provided file_path already exist. Overwrite?",
+            )
+            if not overwrite:
+                file_path = file_path[: len(extension)] + "_" + extension
+        if not exists(file_path) or overwrite:
+            with open(file_path, "wb") as buf:
+                pickle.dump(self, buf)
 
-    @property
-    def results_plots(self):
-        """return the results plots from each test"""
-        return {type(test).__name__: test.results_plot for test in self.tests}
+    @classmethod
+    def load(cls, file_path: str):
+        """
+        load the test data from an input file
+
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test name. If this is not the case, the appropriate extension
+            is appended.
+
+        Returns
+        -------
+        obj: Self
+            the test object
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + cls.__name__.lower()
+        if not file_path.endswith(extension):
+            raise ValueError(f"'file_path' must have {extension}.")
+        try:
+            with open(file_path, "rb") as buf:
+                return pickle.load(buf)
+        except Exception:
+            raise RuntimeError(f"an error occurred importing {file_path}.")
 
     # * constructor
 

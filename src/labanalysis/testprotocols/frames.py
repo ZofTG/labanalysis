@@ -6,7 +6,6 @@ analysis
 #! IMPORTS
 
 
-import pickle
 from os.path import exists
 from typing import Any, Iterable
 from warnings import warn
@@ -15,7 +14,7 @@ import numpy as np
 import pandas as pd
 from labio import read_tdf
 
-from .. import messages, signalprocessing
+from .. import signalprocessing
 
 __all__ = ["StateFrame"]
 

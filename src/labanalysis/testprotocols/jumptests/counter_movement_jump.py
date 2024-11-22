@@ -4,12 +4,12 @@
 
 
 from typing import Iterable
+
 import numpy as np
 import pandas as pd
 
-from ..posturaltests.upright import UprightStance
-
 from ... import signalprocessing as sp
+from ..posturaltests.upright import UprightStance
 from .squat_jump import SquatJump, SquatJumpTest
 
 __all__ = ["CounterMovementJump", "CounterMovementJumpTest"]
@@ -286,7 +286,7 @@ class CounterMovementJumpTest(SquatJumpTest):
         a StaticUprightStance instance defining the baseline acquisition.
 
     *jumps: CounterMovementJump
-        a variable number of jump objects
+        a variable number of CounterMovementJump objects
 
     Attributes
     ----------
@@ -294,16 +294,17 @@ class CounterMovementJumpTest(SquatJumpTest):
         the StaticUprightStance instance of the test
 
     jumps
-        the list of available jumps.
+        the list of available CounterMovementJump objects.
 
-    results_table
-        a table containing the metrics resulting from each jump
+    Methods
+    -------
+    results
+        return a plotly figurewidget highlighting the resulting data
+        and a table with the resulting outcomes as pandas DataFrame.
 
-    summary_table
-        A table with summary statistics about the test.
-
-    summary_plot
-        a plotly FigureWidget summarizing the results of the test
+    summary
+        return a plotly bar plot highlighting the test summary and a table
+        reporting the summary data.
     """
 
     # * class variables
@@ -317,10 +318,8 @@ class CounterMovementJumpTest(SquatJumpTest):
         """return the jumps contained in the test"""
         return self._jumps
 
-    @property
-    def results_table(self):
-        """Return a table containing the test results."""
-        raw = super().results_table
+    def _make_results_table(self):
+        raw = super()._make_results_table()
         new = []
         phase_col = ("Phase", "", "", "", "")
         time_col = ("Time", "", "", "", "")
@@ -333,12 +332,13 @@ class CounterMovementJumpTest(SquatJumpTest):
             dfe.insert(0, jump_col, lbl)
             time = dfe.index.to_numpy() - dfe.index[0]
             dfe.insert(0, time_col, time)
+            dfe = self._simplify_table(dfe)
             dfr = raw.loc[raw.Jump == jmp]
             offset = round(float(np.mean(np.diff(time)) + time[-1]), 3)
-            dfr.loc[dfr.index, time_col] += offset  # type: ignore
+            dfr.loc[dfr.index, ["Time"]] += offset  # type: ignore
             new += [dfe, dfr]
         new = pd.concat(new, ignore_index=True)
-        return new.sort_values(("Time", "", "", "", ""))
+        return new.sort_values("Time")
 
     # * methods
 

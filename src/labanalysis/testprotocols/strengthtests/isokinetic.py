@@ -114,7 +114,7 @@ class Isokinetic1RMTest(LabTest):
         return self.peak_load * b1 + b0
 
     @property
-    def summary_plots(self):
+    def summary(self):
         """return a plotly figurewidget summarizing the test outputs"""
 
         # generate the figure and the subplot grid
@@ -323,18 +323,18 @@ class Isokinetic1RMTest(LabTest):
             ftype="lowpass",
             phase_corrected=True,
         )
-        start_batches = sp.continuous_batches(parr > 0.02 * np.max(parr))
+        start_batches = sp.continuous_batches(parr > 5)
         if len(start_batches) == 0:
             raise RuntimeError("No repetitions have been found")
-        samples = [len(i) for i in start_batches]
-        starts = [start_batches[i][0] for i in np.sort(np.argsort(samples)[::-1][:3])]
-        stop_batches = sp.continuous_batches(parr < 0.02 * np.min(parr))
+        samples = np.argsort([np.max(parr[i]) for i in start_batches])[::-1][:3]
+        starts = [start_batches[i][0] for i in np.sort(samples)]
+        stop_batches = sp.continuous_batches(parr < -5)
         self._repetitions = []
         for start in starts:
             stops = [
                 i[-1]
                 for i in stop_batches
-                if i[0] > start and tarr[i[-1]] - tarr[i[0]] > 1
+                if i[0] > start and tarr[i[-1]] - tarr[i[0]] > 0.5
             ]
             if len(stops) > 0:
                 stop = np.min(stops) + 1

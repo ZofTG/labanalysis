@@ -4,6 +4,7 @@
 
 
 import sys
+import numpy as np
 from os.path import dirname, join
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
@@ -28,6 +29,25 @@ def test_jumps():
     sj_files = [join(path, f"squat_jump_{i + 1}.tdf") for i in range(3)]
     sj_jumps = [SquatJump.from_tdf_file(file) for file in sj_files]
     sj_test = SquatJumpTest(baseline, sj_jumps)
+    fig, tab = sj_test.results()
+    sj_fig, sj_df = sj_test.summary(
+        {
+            "Elevation": {
+                "low": ((0, 10), "red"),
+                "normal": ((10, 30), "yellow"),
+                "good": ((30, np.inf), "green"),
+            },
+            "Takeoff Velocity": {
+                "poor": ((0, 1.2), "red"),
+                "normal": ((1.2, 2.9), "yellow"),
+                "good": ((2.9, np.inf), "green"),
+            },
+            "Biceps Femoris Imbalance": {
+                "poor balance": ([[-np.inf, -10], [10, np.inf]], "red"),
+                "good balance": ((-10, 10), "green"),
+            },
+        }
+    )
 
     print("\tREADING COUNTER MOVEMENT JUMP DATA")
     path = join(dirname(__file__), "counter_movement_jump_data")
@@ -42,6 +62,21 @@ def test_jumps():
     sdj_rt_files = [join(path, f"side_jump_dx_{i + 1}.tdf") for i in range(3)]
     sdj_right = [SideJump.from_tdf_file(file, "Right") for file in sdj_rt_files]
     sdj_test = SideJumpTest(baseline, sdj_left, sdj_right)
+    fig, tab = sdj_test.results()
+    sdj_fig, sdj_df = sdj_test.summary(
+        {
+            "Elevation": {
+                "low": (0, 10, "red"),
+                "normal": (10, 30, "yellow"),
+                "good": (30, np.inf, "green"),
+            },
+            "Takeoff Velocity": {
+                "low": (0, 0.1, "red"),
+                "normal": (0.1, 1, "yellow"),
+                "good": (1, np.inf, "green"),
+            },
+        }
+    )
 
     print("\tREADING SINGLE LEG JUMP DATA")
     path = join(dirname(__file__), "single_leg_jump_data")

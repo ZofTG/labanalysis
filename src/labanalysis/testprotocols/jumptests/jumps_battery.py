@@ -53,9 +53,14 @@ class JumpTestBattery(TestBattery):
         super().__init__(*tests)
 
     @property
-    def summary_table(self):
-        """return a table with summary stats from all the tests"""
-        tab = super().summary_table
+    def summary(self):
+        """
+        return a set of plotly FigureWidget for each relevant metric
+        and a table with the summary metrics
+        """
+
+        # get the data
+        tab = self.summary_table
         if not any(i == "Side" for i in tab.columns):
             tab.insert(0, "Side", np.tile("Bilateral", tab.shape[0]))
         else:
@@ -63,15 +68,7 @@ class JumpTestBattery(TestBattery):
         tab.loc[tab.index, "Test"] = tab.Test.map(
             lambda x: x.replace("JumpTest", "") + " Jump"
         )
-
-        return tab.drop(["Mean", "Std"], axis=1)
-
-    @property
-    def summary_plots(self):
-        """return a set of plotly FigureWidget for each relevant metric"""
-
-        # get the data
-        tab = self.summary_table
+        tab = tab.drop(["Mean", "Std"], axis=1)
         tab.loc[tab.index, "Text"] = tab[["Best", "Unit"]].apply(
             lambda x: str(abs(x[0]))[:5] + " " + x[1],
             axis=1,
@@ -87,7 +84,10 @@ class JumpTestBattery(TestBattery):
         # get the normative values
         normative_values = pd.read_excel(
             io=join(dirname(dirname(__file__)), "normative_values.xlsx"),
-            sheet_name=None,
+            sheet_name="Jumps",
+        )
+        normative_values.loc[normative_values.index, "Test"] = (
+            normative_values.Test.map(lambda x: x.replace(" ", ""))
         )
         colors = {
             "Poor": px.colors.qualitative.Plotly[1],
@@ -110,17 +110,23 @@ class JumpTestBattery(TestBattery):
             fig = make_subplots(
                 rows=1,
                 cols=len(tests),
-                subplot_titles=[i.replace(" ", "<br>") for i in tests],
+                subplot_titles=tests,
+                horizontal_spacing=0.1,
             )
             for i, test in enumerate(tests):
                 dft = dfr.loc[dfr.Test == test]
 
                 # get the normative values
-                norms = normative_values[test.replace(" ", "") + "Test"]
+                idx = normative_values.Test == test.replace(" ", "") + "Test"
+                norms = normative_values.loc[idx]
                 norms = norms.loc[norms.Parameter == parameter]
                 avg, std = norms[["mean", "std"]].values.astype(float).flatten()
-                vmax = max(vmax, avg + 2 * std)
-                vmin = min(vmin, avg - 2 * std)
+                if str(parameter).endswith("Imbalance"):
+                    vmax = max(vmax, avg + 3 * std)
+                    vmin = min(vmin, avg - 3 * std)
+                else:
+                    vmax = max(vmax, avg + 2 * std)
+                    vmin = min(vmin, avg - 2 * std)
 
                 # prepare the data
                 for side, dfs in dft.groupby("Side"):
@@ -129,7 +135,7 @@ class JumpTestBattery(TestBattery):
                         xarr = dfs.Best.values.astype(float)
                         yarr = dfs.Side.values.astype(str)
                         orientation = "h"
-                        if xarr < avg - std or xarr > avg + std:
+                        if xarr < -std or xarr > +std:
                             rnk = "Poor"
                     else:
                         yarr = dfs.Best.values.astype(float)
@@ -139,6 +145,7 @@ class JumpTestBattery(TestBattery):
                             rnk = "Poor"
                         elif yarr > avg + std:
                             rnk = "Good"
+                    tab.loc[dfs.index, "Rank"] = rnk
                     fig.add_trace(
                         row=1,
                         col=i + 1,
@@ -229,32 +236,6 @@ class JumpTestBattery(TestBattery):
                         row=1,  # type: ignore
                         col=i + 1,  # type: ignore
                     )
-                    fig.add_annotation(
-                        text=str(abs(std))[:5],
-                        x=-std,
-                        y=0.5,
-                        xref="x",
-                        yref="y",
-                        align="left",
-                        valign="bottom",
-                        font_size=16,
-                        showarrow=False,
-                        row=1,
-                        col=i + 1,
-                    )
-                    fig.add_annotation(
-                        text=str(abs(std))[:5],
-                        x=std,
-                        y=0.5,
-                        xref="x",
-                        yref="y",
-                        align="right",
-                        valign="bottom",
-                        font_size=16,
-                        showarrow=False,
-                        row=1,
-                        col=i + 1,
-                    )
                 else:
 
                     # this is any other case
@@ -331,12 +312,14 @@ class JumpTestBattery(TestBattery):
                 marker_pattern_fillmode="replace",
                 textposition="outside",
             )
-            fig.update_layout(title=parameter, template="simple_white")
+            fig.update_layout(
+                title=parameter,
+                template="simple_white",
+                legend=dict(traceorder="normal"),
+            )
             fig.update_xaxes(title="", matches=None)
             fig.update_yaxes(title="")
             if str(parameter).endswith("Imbalance"):
-                fig.update_xaxes(range=[-50, 50], visible=False)
-                fig.update_yaxes(visible=False)
                 for col in np.arange(2) + 1:
                     fig.add_annotation(
                         text="Left",
@@ -364,10 +347,16 @@ class JumpTestBattery(TestBattery):
                         row=1,
                         col=col,
                     )
+                fig.update_xaxes(range=[-100, 100], title="Asymmetry")
+                fig.update_yaxes(visible=False)
             else:
                 fig.update_yaxes(range=[vmin, vmax], title=dft.Unit.values[0])
 
             # store
             out[str(parameter)] = go.FigureWidget(fig)
 
-        return out
+        # adjust the output table
+        tab = tab[["Test", "Parameter", "Side", "Unit", "Best", "Rank"]]
+        tab.columns = pd.Index([i.replace("Best", "Value") for i in tab.columns])
+
+        return out, tab

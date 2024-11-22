@@ -462,8 +462,11 @@ class PlankTest(ProneStance, LabTest):
         return out
 
     @property
-    def summary_plots(self):
-        """return dict with summary figures highlighting the test results"""
+    def summary(self):
+        """
+        return a figure highlighting the test results
+        and a table with the summary metrics
+        """
 
         # get sway data
         results = self.results_table
@@ -486,6 +489,8 @@ class PlankTest(ProneStance, LabTest):
         # get the left/right symmetry data
         ref = norms["Symmetry"].values.astype(float).flatten()[0]
         rank = ("Poor" if avg.X < -ref or avg.X > ref else "Normal") + " Symmetry"
+        tab = {"Parameter": "Left/Right Symmetry", "Value": avg.X, "Rank": rank}
+        tab = pd.DataFrame(pd.Series(tab)).T
 
         # get the figure ranges
         amax = cop_coords.abs().max(axis=0).max()
@@ -499,6 +504,7 @@ class PlankTest(ProneStance, LabTest):
             shared_yaxes=False,
             subplot_titles=["Stability Analysis", "Left/Right Symmetry"],
             specs=[[{"rowspan": 3}], [None], [None], [{}]],
+            vertical_spacing=0.2,
         )
 
         # plot the sway
@@ -530,6 +536,7 @@ class PlankTest(ProneStance, LabTest):
                 opacity=1,
                 marker_size=20,
                 showlegend=True,
+                zorder=0,
             ),
         )
 
@@ -616,6 +623,7 @@ class PlankTest(ProneStance, LabTest):
             fillcolor=colors["Normal Symmetry"],
             line_width=0,
             opacity=0.1,
+            legend="legend2",
         )
         fig.add_vrect(
             row=4,  # type: ignore
@@ -627,6 +635,7 @@ class PlankTest(ProneStance, LabTest):
             fillcolor=colors["Poor Symmetry"],
             line_width=0,
             opacity=0.1,
+            legend="legend2",
         )
         fig.add_vrect(
             row=4,  # type: ignore
@@ -714,6 +723,13 @@ class PlankTest(ProneStance, LabTest):
                 xanchor="left",
                 yanchor="top",
             ),
+            legend2=dict(
+                x=1,
+                y=0.15,
+                xanchor="left",
+                yanchor="top",
+                traceorder="normal",
+            ),
             height=(800 - 100) / 3 * 4,
             width=800,
         )
@@ -737,7 +753,7 @@ class PlankTest(ProneStance, LabTest):
             textposition="outside",
         )
 
-        return fig
+        return fig, tab
 
     # * methods
 
