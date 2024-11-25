@@ -303,44 +303,25 @@ class CounterMovementJumpTest(SquatJumpTest):
         and a table with the resulting outcomes as pandas DataFrame.
 
     summary
-        return a plotly bar plot highlighting the test summary and a table
-        reporting the summary data.
+        return a dictionary with the figures highlighting the test summary
+        and a table reporting the summary data.
     """
 
-    # * class variables
-
-    _jumps: list[CounterMovementJump]
-
-    # * attributes
-
-    @property
-    def jumps(self):
-        """return the jumps contained in the test"""
-        return self._jumps
-
-    def _make_results_table(self):
-        raw = super()._make_results_table()
-        new = []
-        phase_col = ("Phase", "", "", "", "")
-        time_col = ("Time", "", "", "", "")
-        jump_col = ("Jump", "", "", "", "")
-        for i, jump in enumerate(self.jumps):
-            dfe = jump.eccentric_phase.to_dataframe().dropna()
-            dfe.insert(0, phase_col, np.tile("Eccentric", dfe.shape[0]))
-            jmp = f"Jump {i + 1}"
-            lbl = np.tile(jmp, dfe.shape[0])
-            dfe.insert(0, jump_col, lbl)
-            time = dfe.index.to_numpy() - dfe.index[0]
-            dfe.insert(0, time_col, time)
-            dfe = self._simplify_table(dfe)
-            dfr = raw.loc[raw.Jump == jmp]
-            offset = round(float(np.mean(np.diff(time)) + time[-1]), 3)
-            dfr.loc[dfr.index, ["Time"]] += offset  # type: ignore
-            new += [dfe, dfr]
-        new = pd.concat(new, ignore_index=True)
-        return new.sort_values("Time")
-
     # * methods
+
+    def _get_single_jump_results(self, jump: CounterMovementJump):
+        """prepare the results returned for a given jump"""
+        pcol = ("Phase", "", "", "", "")
+        tcol = ("Time", "", "", "", "s")
+        dfe = jump.eccentric_phase.to_dataframe().dropna()
+        dfe.insert(0, pcol, np.tile("Eccentric", dfe.shape[0]))
+        time = dfe.index.to_numpy()
+        dfe.insert(0, tcol, time - time[0])
+        raw = super()._get_single_jump_results(jump)
+        dtime = np.mean(np.diff(raw.Time.values.astype(float).flatten()))
+        dtime = round(float(dtime) * dfe.shape[0], 3) * np.ones((raw.shape[0],))
+        raw.loc[raw.index, [tcol]] = raw[tcol].values.astype(float) + dtime
+        return pd.concat([dfe, raw], ignore_index=True).reset_index(drop=True)
 
     def _check_valid_inputs(self):
         # check the baseline

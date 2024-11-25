@@ -347,6 +347,7 @@ def bars_with_normative_bands(
     data_frame: pd.DataFrame | None = None,
     xarr: str | np.ndarray | list = np.array([]),
     yarr: str | np.ndarray | list = np.array([]),
+    patterns: str | np.ndarray | list | None = None,
     orientation: Literal["h", "v"] = "v",
     unit: str | None = None,
     intervals: dict[
@@ -369,9 +370,15 @@ def bars_with_normative_bands(
         a column of the provided dataframe. by default np.array([])
 
     yarr : str | np.ndarray | list, optional
-        the yaxis label in data_frame or the array defining the xaxes labels.
+        the yaxis label in data_frame or the array defining the yaxes labels.
         Please note that if data_frame is provided, yarr must be a str defining
         a column of the provided dataframe. by default np.array([])
+
+    patterns : str | np.ndarray | list | None, optional
+        the column in data_frame defining the bar patterns or the array
+        defining the  labels. Please note that if data_frame is provided,
+        patterns must be a str defining a column of the provided dataframe.
+        by default np.array([])
 
     orientation : Literal["h", "v"], optional
         the bars orientation, by default "v"
@@ -457,6 +464,16 @@ def bars_with_normative_bands(
         ylbl = str(yarr)
         dfr = data_frame
 
+    if patterns is not None:
+        if data_frame is None:
+            dfr.insert(0, "Pattern", _as_array(patterns, "patterns"))
+            plbl = "Pattern"
+        else:
+            _is_part(dfr, patterns)
+            plbl = str(patterns)
+    else:
+        plbl = None
+
     if not isinstance(orientation, str) or orientation not in ["h", "v"]:
         raise ValueError('orientation must be "h" or "v".')
 
@@ -500,41 +517,48 @@ def bars_with_normative_bands(
         data_frame=dfr.reset_index(drop=True),
         x=xlbl,
         y=ylbl,
+        pattern_shape=plbl,
         orientation=orientation,
         text="_Text",
-        # color="_Rank" if len(intervals) != 0 else None,
-        barmode="stack",
+        barmode="stack" if plbl is None else "group",
         template="simple_white",
     )
 
     # add the intervals
     for key, norm in intervals.items():
         vals = norm[0] if isinstance(norm, list) else [norm[0]]
-        for low, upp in vals:  # type: ignore
-            if not np.isfinite(low):
-                low = rng[0]
-            if not np.isfinite(upp):
-                upp = rng[1]
-        if orientation == "h":
-            fig.add_vrect(
-                x0=low,
-                x1=upp,
-                name=key,
-                showlegend=True,
-                fillcolor=norm[-1],
-                line_width=0,
-                opacity=0.1,
-            )
-        else:
-            fig.add_hrect(
-                y0=low,
-                y1=upp,
-                name=key,
-                showlegend=True,
-                fillcolor=norm[-1],
-                line_width=0,
-                opacity=0.1,
-            )
+        for pairs in vals:  # type: ignore
+            if not isinstance(pairs, list):
+                pairs = [pairs]
+            for n, (low, upp) in enumerate(pairs):
+                if not np.isfinite(low):
+                    low = rng[0]
+                if not np.isfinite(upp):
+                    upp = rng[1]
+                if orientation == "h":
+                    fig.add_vrect(
+                        x0=low,
+                        x1=upp,
+                        name=key,
+                        showlegend=bool(n == 0),
+                        fillcolor=norm[-1],
+                        line_width=0,
+                        opacity=0.1,
+                        legendgroup="norms",
+                        legendgrouptitle_text="Normative data",
+                    )
+                else:
+                    fig.add_hrect(
+                        y0=low,
+                        y1=upp,
+                        name=key,
+                        showlegend=bool(n == 0),
+                        fillcolor=norm[-1],
+                        line_width=0,
+                        opacity=0.1,
+                        legendgroup="norms",
+                        legendgrouptitle_text="Normative data",
+                    )
 
     # update the layout
     fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[1]))
@@ -548,22 +572,30 @@ def bars_with_normative_bands(
         fig.update_xaxes(title="" if unit is None else unit, range=rng)
 
     if len(intervals) != 0:
-        colors = dfr["_Rank"].values.tolist()
+        if plbl is not None:
+            for pattern in dfr[plbl].unique():
+                for trace in fig.data:
+                    if trace["name"] == pattern:  # type: ignore
+                        clrs = dfr.loc[dfr[plbl] == pattern, "_Rank"].values  # type: ignore
+                        clrs = clrs.astype(str)
+                        trace.update(  # type: ignore
+                            marker_color=clrs,
+                            marker_line_color=clrs,
+                        )
+        else:
+            colors = dfr["_Rank"].values.tolist()
+            fig.update_traces(marker_color=colors, marker_line_color=colors)
     else:
         colors = pcolors.qualitative.Plotly[0]
+        fig.update_traces(marker_color=colors, marker_line_color=colors)
     hover_tpl = f"<i>{xlbl}</i>: " + "%{x}<br>" + f"<i>{ylbl}</i>: " + "%{y}"
     fig.update_traces(
         marker_cornerradius="30%",
         marker_line_width=3,
-        marker_line_color=colors,
-        marker_color=colors,
-        marker_pattern_shape="x",
-        zorder=0,
         marker_pattern_fillmode="replace",
         textposition="outside",
         hovertemplate=hover_tpl,
-        showlegend=False,
+        opacity=1,
     )
-    fig.update_layout(legend=dict(title=""))
 
     return go.FigureWidget(fig), dfr

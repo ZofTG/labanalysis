@@ -361,54 +361,30 @@ class SingleLegJumpTest(SideJumpTest):
     Class handling the data processing and analysis of the collected data about
     a single leg jump test.
 
-    Parameters
+    Attributes
     ----------
     baseline: UprightStance
         a UprightStance instance defining the baseline acquisition.
 
-    left_jumps: Iterable[SingleLegJump]
-        a variable number of SingleLegJump objects
+    left_jumps: Iterable[SideJump]
+        a variable number of SideJump objects
 
-    right_jumps: Iterable[SingleLegJump]
-        a variable number of SingleLegJump objects
+    right_jumps: Iterable[SideJump]
+        a variable number of SideJump objects
 
-    Attributes
-    ----------
-    baseline
-        the UprightStance instance of the test
+    jumps
+        the list of available SquatJump objects.
 
-    left_jumps
-        the list of available (left) SingleLegJump objects.
+    Methods
+    -------
+    results
+        return a plotly figurewidget highlighting the resulting data
+        and a table with the resulting outcomes as pandas DataFrame.
 
-    right_jumps
-        the list of available (right) SingleLegJump objects.
-
-    results_table
-        a table containing the metrics resulting from each jump
-
-    summary_table
-        A table with summary statistics about the test.
-
-    summary_plot
-        a plotly FigureWidget summarizing the results of the test
+    summary
+        return a dictionary with the figures highlighting the test summary
+        and a table reporting the summary data.
     """
-
-    # * methods
-
-    def _check_valid_inputs(self):
-        # check the baseline
-        if not isinstance(self._baseline, UprightStance):
-            raise ValueError("baseline must be an UprightStance instance.")
-
-        # check for the jumps
-        if not isinstance(self._left_jumps, list):
-            raise ValueError("'left_jumps' must be a list of SingleLegJump objects.")
-        if not isinstance(self._right_jumps, list):
-            raise ValueError("'right_jumps' must be a list of SingleLegJump objects.")
-        for jump in self._left_jumps + self._right_jumps:
-            if not isinstance(jump, SingleLegJump):
-                msg = f"All jumps must be SingleLegJump instances."
-                raise ValueError(msg)
 
     # * constructors
 
@@ -418,6 +394,15 @@ class SingleLegJumpTest(SideJumpTest):
         left_jumps: list[SingleLegJump],
         right_jumps: list[SingleLegJump],
     ):
+        # check for the jumps
+        if not isinstance(left_jumps, list):
+            raise ValueError("'left_jumps' must be a list of SingleLegJump objects.")
+        if not isinstance(right_jumps, list):
+            raise ValueError("'right_jumps' must be a list of SingleLegJump objects.")
+        for jump in left_jumps + right_jumps:
+            if not isinstance(jump, SingleLegJump):
+                msg = f"All jumps must be SingleLegJump instances."
+                raise ValueError(msg)
         super().__init__(
             baseline=baseline,
             left_jumps=left_jumps,  # type: ignore

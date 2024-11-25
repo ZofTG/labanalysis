@@ -391,155 +391,18 @@ class LabTest(Protocol):
         normative_intervals: dict[
             str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
         ] = {},
-    ):
-        """
-        make the table defining the summary results.
-
-        Parameters
-        ----------
-        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]]
-            the parameters on which the normative intervals have to be
-            represented.
-        """
-        # get the summary results in long format
-        out = self._get_jump_features()
-
-        # add the normative bands
-        for (jump, param), dfr in out.groupby(["Jump", "Parameter"]):
-
-            # set the normative band
-            if str(param) in list(normative_intervals.keys()):
-                norms = normative_intervals[str(param)]
-                val = dfr.Value.values[0]
-                for lvl, norm in norms.items():
-                    vals = norm[0] if isinstance(norm[0], list) else [norm[0]]
-                    for low, upp in vals:  # type: ignore
-                        if val >= low and val <= upp:
-                            out.loc[dfr.index, "Interpretation"] = lvl
-                            out.loc[dfr.index, "Color"] = norm[-1]
-                            break
-
-        return out
+    ) -> pd.DataFrame: ...
 
     def _make_summary_plot(
         self,
-        data_frame: pd.DataFrame,
-        param_col: str,
-        value_col: str,
-        xaxis_col: str | None = None,
         normative_intervals: dict[
             str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
         ] = {},
-    ):
-        """
-        make the plot defining the summary results of the test
+    ) -> go.FigureWidget: ...
 
-        Parameters
-        ----------
-        data_frame : pd.DataFrame
-            the summary dataframe
+    def _make_results_table(self) -> pd.DataFrame: ...
 
-        param_col : str
-            the label of the column in data_frame referring to the parameters
-            to be plotted
-
-        value_col : str
-            the label of the column in data_frame referring to the values
-            corresponding to the height of each bar
-
-        xaxis_col : str | None, optional
-            the label of the column in data_frame referring to the bars to be
-            plotted. If None, this parameter is ignored.
-
-        normative_intervals:dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]], optional
-            the parameters on which the normative intervals have to be
-            represented.
-
-        Returns
-        -------
-        fig: FigureWidget
-            the output figure
-        """
-
-        def check_col(data_frame: pd.DataFrame, col: object, lbl: str):
-            if not isinstance(data_frame, pd.DataFrame):
-                raise ValueError("data_frame must be a pandas DataFrame")
-            msg = f"{lbl} must be a string defining one column in data_frame."
-            if not isinstance(col, str):
-                raise ValueError(msg)
-            if not any([i == col for i in data_frame.columns]):
-                raise ValueError(msg)
-
-        # check the inputs
-        check_col(data_frame, param_col, "param_col")
-        check_col(data_frame, value_col, "value_col")
-        if xaxis_col is not None:
-            check_col(data_frame, xaxis_col, "xaxis_col")
-
-        # build the output figure
-        parameters = data_frame[param_col].unique()
-        fig = make_subplots(
-            rows=1,
-            cols=len(parameters),
-            subplot_titles=parameters,
-            shared_xaxes=False,
-            shared_yaxes=False,
-            horizontal_spacing=0.1,
-            row_titles=None,
-            column_titles=parameters.tolist(),
-            x_title=None,
-            y_title=None,
-        )
-
-        # populate the figure
-        for i, parameter in enumerate(parameters):
-
-            # get the data and the normative bands
-            dfr = data_frame.loc[data_frame[param_col] == parameter]
-            if any([i == parameter for i in normative_intervals.keys()]):
-                norms = normative_intervals[parameter]
-            else:
-                norms = {}
-
-            # get a bar plot with optional normative bands
-            xval = "Jump" if xaxis_col is None else xaxis_col
-            fig0 = bars_with_normative_bands(
-                data_frame=dfr,
-                yarr=xval if parameter.endswith("Imbalance") else value_col,
-                xarr=value_col if parameter.endswith("Imbalance") else xval,
-                orientation="h" if parameter.endswith("Imbalance") else "v",
-                unit=dfr.Unit.values[0],
-                intervals=norms,  # type: ignore
-            )[0]
-
-            # add the figure data and annotations to the proper figure
-            for trace in fig0.data:
-                fig.add_trace(row=1, col=i + 1, trace=trace)
-            for shape in fig0.layout["shapes"]:  # type: ignore
-                showlegend = [
-                    i["name"] == shape["name"]  # type: ignore
-                    for i in fig.layout["shapes"]  # type: ignore
-                ]
-                showlegend = not any(showlegend)
-                shape.update(  # type: ignore
-                    legendgroup=shape["name"],  # type: ignore
-                    showlegend=showlegend,
-                )
-            for shape in fig0.layout.shapes:  # type: ignore
-                fig.add_shape(shape, row=1, col=i + 1)
-            if parameter.endswith("Imbalance"):
-                fig.update_xaxes(
-                    row=1,
-                    col=i + 1,
-                    range=fig0.layout["xaxis"].range,  # type: ignore
-                )
-            else:
-                fig.update_yaxes(
-                    row=1,
-                    col=i + 1,
-                    range=fig0.layout["yaxis"].range,  # type: ignore
-                )
-        return go.FigureWidget(fig)
+    def _make_results_plot(self) -> go.FigureWidget: ...
 
     def _check_norms(self, normative_intervals: object):
         """check the normative intervals architecture"""
@@ -586,7 +449,7 @@ class LabTest(Protocol):
         and a table with the resulting outcomes as pandas DataFrame.
         """
         raw = self._make_results_table()
-        fig = self._make_results_plot(raw)
+        fig = self._make_results_plot()
         return fig, raw
 
     def summary(
@@ -627,16 +490,10 @@ class LabTest(Protocol):
         """
         self._check_norms(normative_intervals)
         res = self._make_summary_table(normative_intervals)
-        fig = self._make_summary_plot(
-            data_frame=res,
-            param_col="Parameter",
-            value_col="Value",
-            xaxis_col=None,
-            normative_intervals=normative_intervals,
-        )
+        fig = self._make_summary_plot(normative_intervals)
         return fig, res
 
-    def save(self, file_path: str) -> None:
+    def save(self, file_path: str):
         """
         save the test to the input file
 

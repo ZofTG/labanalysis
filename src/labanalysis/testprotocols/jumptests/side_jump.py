@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
 from plotly.subplots import make_subplots
-from ...plotting.plotly import bars_with_normative_bands
 
+from ...constants import G
+from ...plotting.plotly import bars_with_normative_bands
 from ..frames import StateFrame
 from ..posturaltests.upright import UprightStance
 from .counter_movement_jump import CounterMovementJump, CounterMovementJumpTest
@@ -426,7 +426,7 @@ class SideJumpTest(CounterMovementJumpTest):
     Class handling the data processing and analysis of the collected data about
     a side jump test.
 
-    Parameters
+    Attributes
     ----------
     baseline: UprightStance
         a UprightStance instance defining the baseline acquisition.
@@ -437,25 +437,18 @@ class SideJumpTest(CounterMovementJumpTest):
     right_jumps: Iterable[SideJump]
         a variable number of SideJump objects
 
-    Attributes
-    ----------
-    baseline
-        the UprightStance instance of the test
+    jumps
+        the list of available SquatJump objects.
 
-    left_jumps
-        the list of available (left) SideJump objects.
+    Methods
+    -------
+    results
+        return a plotly figurewidget highlighting the resulting data
+        and a table with the resulting outcomes as pandas DataFrame.
 
-    right_jumps
-        the list of available (right) SideJump objects.
-
-    results_table
-        a table containing the metrics resulting from each jump
-
-    summary_table
-        A table with summary statistics about the test.
-
-    summary_plot
-        a plotly FigureWidget summarizing the results of the test
+    summary
+        return a dictionary with the figures highlighting the test summary
+        and a table reporting the summary data.
     """
 
     # * class variables
@@ -475,172 +468,220 @@ class SideJumpTest(CounterMovementJumpTest):
         """return the right jumps performed during the test"""
         return self._right_jumps
 
-    def _make_results_table(self):
-        """Return a table containing the test results."""
+    # * methods
 
-        def get_jump_results(jump: SideJump):
-            """private method used to obtain jump results"""
-            col = ("Phase", "", "", "", "")
-            try:
-                dfe = jump.eccentric_phase.to_dataframe().dropna()
-                dfe.insert(0, col, np.tile("Eccentric", dfe.shape[0]))
-            except Exception:
-                dfe = pd.DataFrame()
-            try:
-                dfc = jump.concentric_phase.to_dataframe().dropna()
-                dfc.insert(0, col, np.tile("Concentric", dfc.shape[0]))
-            except Exception:
-                dfc = pd.DataFrame()
-            try:
-                dff = jump.flight_phase.to_dataframe().dropna()
-                dff.insert(0, col, np.tile("Flight", dff.shape[0]))
-            except Exception:
-                dff = pd.DataFrame()
-            try:
-                dfl = jump.loading_response_phase.to_dataframe().dropna()
-                dfl.insert(0, col, np.tile("Loading Response", dfl.shape[0]))
-            except Exception:
-                dfe = pd.DataFrame()
-
-            dfj = pd.concat([dfe, dfc, dff, dfl])
-            time = dfj.index.to_numpy() - dfj.index[0]
-            dfj.insert(0, ("Time", "", "", "", ""), time)
-            dfj.reset_index(inplace=True, drop=True)
-            dfj.insert(0, ("Side", "", "", "", ""), np.tile(jump.side, dfj.shape[0]))
-            return dfj
-
-        raw = []
-        for i, jump in enumerate(self.left_jumps):
-            dfj = get_jump_results(jump)
-            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
-            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
-            raw += [dfj]
-        for i, jump in enumerate(self.right_jumps):
-            dfj = get_jump_results(jump)
-            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
-            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
-            raw += [dfj]
-
-        return pd.concat(raw, ignore_index=True)
-
-    def summary(
-        self,
-        normative_intervals: dict[
-            str, dict[str, tuple[int | float, int | float, str]]
-        ] = {},
-    ):
+    def _simplify_table(self, table: pd.DataFrame):
         """
-        return a plotly bar plot highlighting the test summary and a table
-        reporting the summary data.
+        get a simplified table containing only the reference data for the
+        jumps
 
         Parameters
         ----------
-        normative_intervals: dict[str, dict[str, tuple[int | float, int | float, str]]]
-            one or more key-valued dictionaries defining the properties
-            returned by the test. The keys should be:
-                "Elevation"
-                "Takeoff velocity"
-                "<muscle> Imbalance"
-            Where <muscle> denotes an (optional) investigated muscle.
-
-            For each key, a dict shall be provided as value having structure:
-                band_name: (lower_bound, upper_bound, color)
-
-            Here the upper and lower bounds should be considered as inclusive
-            of the provided values, and the color should be a string object
-            that can be interpreted as color.
+        table: pd.DataFrame
+            the table to be simplified
 
         Returns
         -------
-        fig: plotly FigureWidget
-            return a plotly FigureWidget object summarizing the results of the
-            test.
-
-        tab: pandas DataFrame
-            return a pandas dataframe with a summary of the test results.
+        simple: pd.DataFrame
+            the simplified table
         """
-        # check the inputs
-        if not isinstance(normative_intervals, dict):
-            raise ValueError("normative_intervals must be a dict object.")
+        cols = [("MARKER", "S2", "COORDINATE", "Y", "m")]
+        cols += [("FORCE_PLATFORM", "fRes", "FORCE", "Y", "N")]
+        cols += [i for i in table.columns if i[0] == "EMG"]
+        raw = []
+        jumps = table.Jump.values.astype(str).flatten()
+        sides = table.Side.values.astype(str).flatten()
+        time = table.Time.values.astype(float).flatten()
+        phase = table.Phase.values.astype(str).flatten()
+        for col in cols:
+            typ = col[1] if col[0] == "EMG" else col[0]
+            typ = typ.split("_")[0].capitalize()
+            if col[3] == "Left" or col[3] == "Right":
+                name = col[3]
+            else:
+                name = col[1]
+            val = table[col].values.astype(float).flatten()
+            if col[-1] == "V":
+                unit = "uV"
+                val = val * 1e6
+            elif col[-1] == "N":
+                unit = "kgf"
+                val = val / G
+            else:
+                unit = "cm"
+                val = val * 1e2
+            new = {
+                "Type": np.tile(typ, len(val)),
+                "Parameter": np.tile(name, len(val)),
+                "Unit": np.tile(unit, len(val)),
+                "Value": val,
+                "Time": time,
+                "Jump": jumps,
+                "Phase": phase,
+                "Side": sides,
+            }
+            raw += [pd.DataFrame(new)]
+        return pd.concat(raw, ignore_index=True)
 
-        # get the summary results in long format
-        out = []
-        for i, jump in enumerate(self.jumps):
-            new = self._get_jump_features()
-            new.insert(0, "Jump", np.tile(f"Jump {i + 1}", new.shape[0]))
-            out += [new]
+    def _make_results_table(self):
+        """
+        private method used to generate the table required for creating
+        the results figure
+        """
+        # get the results table
+        raw = []
+        for i, jump in enumerate(self.right_jumps):
+            dfj = self._get_single_jump_results(jump)
+            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
+            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
+            dfj.insert(0, "Side", np.tile(jump.side, dfj.shape[0]))
+            raw += [dfj]
+        for i, jump in enumerate(self.left_jumps):
+            dfj = self._get_single_jump_results(jump)
+            lbl = np.tile(f"Jump {i + 1}", dfj.shape[0])
+            dfj.insert(0, ("Jump", "", "", "", ""), lbl)
+            dfj.insert(0, "Side", np.tile(jump.side, dfj.shape[0]))
+            raw += [dfj]
+        return self._simplify_table(pd.concat(raw))
 
-        res = pd.concat(out, ignore_index=True)
+    def _make_results_plot(self):
+        """generate a figure according to the test's data"""
 
-        # build the output figure
-        parameters = ["Elevation", "Takeoff Velocity"]
-        parameters += [i for i in res.Parameter.unique() if i.endswith("Imbalance")]
-        fig = make_subplots(
-            rows=1,
-            cols=len(parameters),
-            subplot_titles=parameters,
-            shared_xaxes=False,
-            shared_yaxes=False,
-            horizontal_spacing=0.1,
-            row_titles=None,
-            column_titles=None,
-            x_title=None,
-            y_title=None,
+        raw = self._make_results_table()
+        raw.loc[raw.index, "Label"] = [
+            " ".join([i, v]).replace(" ", "<br>")
+            for i, v in zip(raw.Type, raw.Parameter)
+        ]
+        raw.loc[raw.index, "Side"] = raw.Side.map(lambda x: x + " Jump(s)")
+        fig = px.line(
+            data_frame=raw,
+            x="Time",
+            y="Value",
+            line_dash="Jump",
+            color="Phase",
+            facet_row="Label",
+            facet_col="Side",
         )
+        fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[-1]))
+        fig.update_traces(opacity=0.33)
+        fig.update_yaxes(matches=None, showticklabels=True)
+        for row in np.arange(len(raw.Label.unique())):
+            fig.update_yaxes(
+                matches="y" if row == 0 else f"y{row * 2 + 1}",
+                row=row + 1,
+            )
+        fig.update_xaxes(showticklabels=True)
+        fig.update_xaxes(matches="x", col=1)
+        fig.update_xaxes(matches="x2", col=2)
+        combs = raw[["Unit", "Label"]].drop_duplicates().values[::-1]
+        for i, (unit, lbl) in enumerate(combs):
+            fig.update_yaxes(title=unit, row=i + 1, col=1)
 
-        # populate the figure
+        # update the layout and return
+        fig.update_layout(
+            template="simple_white",
+            height=300 * len(raw.Label.unique()),
+            width=1200,
+        )
+        return go.FigureWidget(fig)
+
+    def _make_summary_table(
+        self,
+        normative_intervals: dict[
+            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
+        ] = {},
+    ):
+        """
+        make the table defining the summary results.
+
+        Parameters
+        ----------
+        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]]
+            the parameters on which the normative intervals have to be
+            represented.
+        """
+        # get the EMG norms and user weight
+        weight = self.baseline.weight
+
+        # get the features for each jump
         out = []
-        for i, parameter in enumerate(parameters):
+        for j, jump in enumerate(self.right_jumps):
+            jump_df = self._get_single_jump_feats(jump, weight)
+            jump_df.insert(0, "Jump", np.tile(f"Jump {j + 1}", jump_df.shape[0]))
+            jump_df.insert(0, "Side", np.tile(jump.side, jump_df.shape[0]))
+            out += [jump_df]
+        for j, jump in enumerate(self.left_jumps):
+            jump_df = self._get_single_jump_feats(jump, weight)
+            jump_df.insert(0, "Jump", np.tile(f"Jump {j + 1}", jump_df.shape[0]))
+            jump_df.insert(0, "Side", np.tile(jump.side, jump_df.shape[0]))
+            out += [jump_df]
+        out = pd.concat(out, ignore_index=True)
+
+        # add the normative bands
+        for (jump, param), dfr in out.groupby(["Jump", "Parameter"]):
+
+            # set the normative band
+            if str(param) in list(normative_intervals.keys()):
+                norms = normative_intervals[str(param)]
+                val = dfr.Value.values[0]
+                for lvl, norm in norms.items():
+                    vals = norm[0] if isinstance(norm[0], list) else [norm[0]]
+                    for low, upp in vals:  # type: ignore
+                        if val >= low and val <= upp:
+                            out.loc[dfr.index, "Interpretation"] = lvl
+                            out.loc[dfr.index, "Color"] = norm[-1]
+                            break
+
+        return out
+
+    def _make_summary_plot(
+        self,
+        normative_intervals: dict[
+            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
+        ] = {},
+    ):
+        """
+        make the plot defining the summary results of the test
+
+        Parameters
+        ----------
+        normative_intervals:dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]], optional
+            the parameters on which the normative intervals have to be
+            represented.
+
+        Returns
+        -------
+        figures: dict[str, FigureWidget]
+            a dictionary containing the figures describing the summary data.
+        """
+        # get the summary data
+        data = self._make_summary_table(normative_intervals)
+
+        # build the output figures
+        figures: dict[str, go.FigureWidget] = {}
+        for parameter in data.Parameter.unique():
 
             # get the data and the normative bands
-            dfr = res.loc[res.Parameter == parameter]
+            dfr = data.loc[data.Parameter == parameter]
             if any([i == parameter for i in normative_intervals.keys()]):
                 norms = normative_intervals[parameter]
             else:
                 norms = {}
 
             # get a bar plot with optional normative bands
-            fig0, dfs = bars_with_normative_bands(
+            fig = bars_with_normative_bands(
                 data_frame=dfr,
-                yarr="Jump" if parameter.endswith("Imbalance") else "Value",
-                xarr="Value" if parameter.endswith("Imbalance") else "Jump",
-                orientation="h" if parameter.endswith("Imbalance") else "v",
+                yarr="Jump" if "Imbalance" in parameter else "Value",
+                xarr="Value" if "Imbalance" in parameter else "Jump",
+                patterns="Side",
+                orientation="h" if "Imbalance" in parameter else "v",
                 unit=dfr.Unit.values[0],
-                **norms,  # type: ignore
-            )
-            dfs.insert(0, "Parameter", np.tile(parameter, dfs.shape[0]))
-            out += [dfs]
+                intervals=norms,  # type: ignore
+            )[0]
+            fig.update_layout(title=parameter, template="simple_white")
+            figures[parameter] = go.FigureWidget(fig)
 
-            # add the figure data and annotations to the proper figure
-            for trace in fig0.data:
-                fig.add_trace(row=1, col=i + 1, trace=trace)
-            for shape in fig0.layout["shapes"]:  # type: ignore
-                showlegend = not any(
-                    (
-                        i["name"] == shape["name"]  # type: ignore
-                        for i in fig.layout["shapes"]  # type: ignore
-                    )
-                )
-                shape.update(  # type: ignore
-                    legendgroup=shape["name"],  # type: ignore
-                    showlegend=showlegend,
-                )
-            for shape in fig0.layout.shapes:  # type: ignore
-                fig.add_shape(shape, row=1, col=i + 1)
-            if parameter.endswith("Imbalance"):
-                fig.update_xaxes(
-                    row=1,
-                    col=i + 1,
-                    range=fig0.layout["xaxis"].range,  # type: ignore
-                )
-            else:
-                fig.update_yaxes(
-                    row=1,
-                    col=i + 1,
-                    range=fig0.layout["yaxis"].range,  # type: ignore
-                )
-
-        return go.FigureWidget(fig), pd.concat(out, ignore_index=True)
+        return figures
 
     # * constructors
 
@@ -651,11 +692,11 @@ class SideJumpTest(CounterMovementJumpTest):
         right_jumps: list[SideJump],
     ):
         # check for the jumps
-        if not isinstance(self._left_jumps, list):
+        if not isinstance(left_jumps, list):
             raise ValueError("'left_jumps' must be a list of SideJump objects.")
-        if not isinstance(self._right_jumps, list):
+        if not isinstance(right_jumps, list):
             raise ValueError("'right_jumps' must be a list of SideJump objects.")
-        for jump in self._left_jumps + self._right_jumps:
+        for jump in left_jumps + right_jumps:
             if not isinstance(jump, SideJump):
                 msg = f"All jumps must be SideJump instances."
                 raise ValueError(msg)
