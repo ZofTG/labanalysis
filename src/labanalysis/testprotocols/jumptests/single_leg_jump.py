@@ -375,6 +375,9 @@ class SingleLegJumpTest(SideJumpTest):
     jumps
         the list of available SquatJump objects.
 
+    name: str
+        the name of the test
+
     Methods
     -------
     results
@@ -384,6 +387,12 @@ class SingleLegJumpTest(SideJumpTest):
     summary
         return a dictionary with the figures highlighting the test summary
         and a table reporting the summary data.
+
+    save
+        a method allowing the saving of the data in an appropriate format.
+
+    load
+        a class method to load a LabTest object saved in its own format.
     """
 
     # * constructors

@@ -440,6 +440,9 @@ class SideJumpTest(CounterMovementJumpTest):
     jumps
         the list of available SquatJump objects.
 
+    name: str
+        the name of the test
+
     Methods
     -------
     results
@@ -449,6 +452,12 @@ class SideJumpTest(CounterMovementJumpTest):
     summary
         return a dictionary with the figures highlighting the test summary
         and a table reporting the summary data.
+
+    save
+        a method allowing the saving of the data in an appropriate format.
+
+    load
+        a class method to load a LabTest object saved in its own format.
     """
 
     # * class variables
@@ -587,18 +596,37 @@ class SideJumpTest(CounterMovementJumpTest):
 
     def _make_summary_table(
         self,
-        normative_intervals: dict[
-            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
-        ] = {},
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
     ):
         """
-        make the table defining the summary results.
+        return a table highlighting the test summary and a table reporting
+        the summary data.
 
         Parameters
         ----------
-        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]]
-            the parameters on which the normative intervals have to be
-            represented.
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        table: pd.DataFrame
+            return the summary table
         """
         # get the EMG norms and user weight
         weight = self.baseline.weight
@@ -619,40 +647,52 @@ class SideJumpTest(CounterMovementJumpTest):
 
         # add the normative bands
         for (jump, param), dfr in out.groupby(["Jump", "Parameter"]):
-
-            # set the normative band
-            if str(param) in list(normative_intervals.keys()):
-                norms = normative_intervals[str(param)]
-                val = dfr.Value.values[0]
-                for lvl, norm in norms.items():
-                    vals = norm[0] if isinstance(norm[0], list) else [norm[0]]
-                    for low, upp in vals:  # type: ignore
-                        if val >= low and val <= upp:
-                            out.loc[dfr.index, "Interpretation"] = lvl
-                            out.loc[dfr.index, "Color"] = norm[-1]
-                            break
+            if normative_intervals.shape[0] > 0:
+                idx = normative_intervals.Parameter == str(param)
+                norms = normative_intervals.loc[idx]
+                for row in np.arange(norms.shape[0]):
+                    rnk, low, upp, clr = norms.iloc[row].values.flatten()
+                    val = dfr.Value.values.astype(float)
+                    if val >= low and val <= upp:
+                        out.loc[dfr.index, "Rank"] = rnk
+                        out.loc[dfr.index, "Color"] = clr
 
         return out
 
     def _make_summary_plot(
         self,
-        normative_intervals: dict[
-            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
-        ] = {},
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
     ):
         """
-        make the plot defining the summary results of the test
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
 
         Parameters
         ----------
-        normative_intervals:dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]], optional
-            the parameters on which the normative intervals have to be
-            represented.
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
 
         Returns
         -------
         figures: dict[str, FigureWidget]
-            a dictionary containing the figures describing the summary data.
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
         """
         # get the summary data
         data = self._make_summary_table(normative_intervals)
@@ -663,10 +703,11 @@ class SideJumpTest(CounterMovementJumpTest):
 
             # get the data and the normative bands
             dfr = data.loc[data.Parameter == parameter]
-            if any([i == parameter for i in normative_intervals.keys()]):
-                norms = normative_intervals[parameter]
+            if normative_intervals.shape[0] > 0:
+                idx = normative_intervals.Parameter == parameter
+                norms = normative_intervals[idx]
             else:
-                norms = {}
+                norms = normative_intervals
 
             # get a bar plot with optional normative bands
             fig = bars_with_normative_bands(

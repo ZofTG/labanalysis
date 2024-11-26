@@ -296,6 +296,9 @@ class CounterMovementJumpTest(SquatJumpTest):
     jumps
         the list of available CounterMovementJump objects.
 
+    name: str
+        the name of the test
+
     Methods
     -------
     results
@@ -305,6 +308,12 @@ class CounterMovementJumpTest(SquatJumpTest):
     summary
         return a dictionary with the figures highlighting the test summary
         and a table reporting the summary data.
+
+    save
+        a method allowing the saving of the data in an appropriate format.
+
+    load
+        a class method to load a LabTest object saved in its own format.
     """
 
     # * methods

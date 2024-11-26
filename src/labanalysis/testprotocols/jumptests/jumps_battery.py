@@ -2,14 +2,13 @@
 
 #! IMPORTS
 
-from os.path import dirname, join
-
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 
+from ...plotting.plotly import bars_with_normative_bands
 from ..base import TestBattery
 from .counter_movement_jump import CounterMovementJumpTest
 from .side_jump import SideJumpTest
@@ -26,10 +25,278 @@ class JumpTestBattery(TestBattery):
     """
     generate a test battery from jump tests
 
-    Parameters
+    Attributes
+    ----------
     *tests: SquatJumpTest | CounterMovementJumpTest | SideJumpTest | SingleLegJumpTest
         the list of jump tests to be analysed
+
+    Methods
+    -------
+    summary:
+        Return a summary table reporting the test battery results and dictionary
+        with figures representing the outcomes for each investigated parameter.
+
+    save
+        a method allowing the saving of the data in an appropriate format.
+
+    load
+        a class method to load a LabTest object saved in its own format.
     """
+
+    # methods
+
+    def _make_summary_table(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
+        """
+        return a table highlighting the test summary and a table reporting
+        the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Test: str
+                    the name of the target test
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        table: pd.DataFrame
+            return the summary table
+        """
+        results = []
+        for test in self.tests:
+            idx = normative_intervals.Test == test.name
+            tab = test._make_summary_table(normative_intervals.loc[idx])
+            tab.insert(0, "Test", np.tile(test.name, tab.shape[0]))
+            idx = tab.loc[tab.Parameter == "Elevation"]
+            best_jump = idx.iloc[idx.Value.argmax()].Jump
+            tab = tab.loc[tab.Jump == best_jump]
+            if isinstance(tab, pd.Series):
+                tab = pd.DataFrame(tab).T
+            results += [tab]
+        return pd.concat(results, ignore_index=True)
+
+    def _make_summary_plot(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
+        """
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Test: str
+                    the name of the target test
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        figures: dict[str, FigureWidget]
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
+        """
+
+        # get the data
+        data = self._make_summary_table(normative_intervals)
+
+        # build the figure
+        figures: dict[str, go.FigureWidget] = {}
+        for parameter, dfp in data.groupby("Parameter"):
+            unit = str(data.Unit.values[0])
+            dfp.loc[dfp.index, ["Side"]] = dfp.Side.map(
+                lambda x: "Bilateral" if not isinstance(x, str) else x
+            )
+            dfp.loc[dfp.index, ["Text"]] = dfp.Value.map(
+                lambda x: str(x)[:5] + " " + unit
+            )
+
+            # norms
+            if normative_intervals.shape[0] > 0:
+                idx = normative_intervals.Parameter == str(parameter)
+                norms = normative_intervals.loc[idx]
+            else:
+                norms = pd.DataFrame()
+            for row in np.arange(norms.shape[0]):
+                test, param, rnk, low, upp, clr = norms.iloc[row].values
+                idx = dfp.loc[dfp.Test == test].index
+                vals = dfp.loc[idx].Value.values
+                for i, v in zip(idx, vals):
+                    if param == str(parameter) and v >= low and v <= upp:
+                        dfp.loc[i, ["Rank"]] = rnk
+                        dfp.loc[i, ["Color"]] = clr
+
+            # get the output figure
+            xlbl = "Value" if "Imbalance" in str(parameter) else "Test"
+            ylbl = "Test" if "Imbalance" in str(parameter) else "Value"
+            fig = px.bar(
+                data_frame=dfp.reset_index(drop=True),
+                x=xlbl,
+                y=ylbl,
+                pattern_shape="Side",
+                facet_col="Test",
+                orientation="h" if "Imbalance" in str(parameter) else "v",
+                text="Text",
+                barmode="group",
+                template="simple_white",
+            )
+
+            # get the test boundaries
+            if "Imbalance" in str(parameter):
+                low = -dfp.Value.abs().max() * 2
+                upp = dfp.Value.abs().max() * 2
+            else:
+                low = dfp.Value.min() * 0.9
+                upp = dfp.Value.max() * 1.1
+            lown = norms.Lower.values.astype(float)
+            lown = lown[np.isfinite(lown)]
+            if len(lown) > 0:
+                low = min(low, lown.min())
+            uppn = norms.Upper.values.astype(float)
+            uppn = uppn[np.isfinite(uppn)]
+            if len(uppn) > 0:
+                upp = max(upp, uppn.max())
+
+            # add the intervals
+            legends = []
+            fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[-1]))
+            anns = fig.layout.annotations  # type: ignore
+            tests = [v["text"] for v in anns]
+            for i in np.arange(norms.shape[0]):
+                test, param, rnk, lowb, uppb, clr = norms.iloc[i].values
+                if not np.isfinite(lowb):
+                    lowb = low
+                if not np.isfinite(uppb):
+                    uppb = upp
+                if rnk not in legends:
+                    showlegend = True
+                    legends += [rnk]
+                else:
+                    showlegend = False
+                col = int([i for i, v in enumerate(tests) if v == test][0]) + 1
+                if "Imbalance" in str(parameter):
+                    fig.add_vrect(
+                        x0=lowb,
+                        x1=uppb,
+                        name=rnk,
+                        showlegend=showlegend,
+                        fillcolor=clr,
+                        line_width=0,
+                        opacity=0.1,
+                        legendgroup="norms",
+                        legendgrouptitle_text="Normative data",
+                        col=col,  # type: ignore
+                    )
+                else:
+                    fig.add_hrect(
+                        y0=lowb,
+                        y1=uppb,
+                        name=rnk,
+                        showlegend=showlegend,
+                        fillcolor=clr,
+                        line_width=0,
+                        opacity=0.1,
+                        legendgroup="norms",
+                        legendgrouptitle_text="Normative data",
+                        col=col,  # type: ignore
+                    )
+
+            # update the layout
+            if "Imbalance" in str(parameter):
+                fig.update_xaxes(
+                    matches=None,
+                    showticklabels=True,
+                    range=[low, upp],
+                )
+                fig.update_yaxes(
+                    matches=None,
+                    showticklabels=False,
+                    visible=False,
+                    title="",
+                )
+                fig.add_vline(
+                    x=0,
+                    line_dash="dash",
+                    line_color="black",
+                    line_width=1,
+                )
+            else:
+                fig.update_yaxes(
+                    matches=None,
+                    showticklabels=True,
+                    range=[0, upp],
+                )
+                fig.update_yaxes(title=unit, col=1)
+                fig.update_xaxes(
+                    matches=None,
+                    showticklabels=False,
+                    visible=False,
+                    title="",
+                )
+            fig.update_layout(title=parameter)
+
+            # update the traces
+            for trace in fig.data:
+                test = trace["y" if "Imbalance" in str(parameter) else "x"][0]
+                side = trace["name"]
+                clr = dfp.loc[(dfp.Test == test) & (dfp.Side == side)]
+                clr = str(clr.Color.values[0])
+                clr = px.colors.qualitative.Plotly[0] if clr == "nan" else clr
+                trace.update(  # type: ignore
+                    marker_color=clr,
+                    marker_line_color=clr,
+                )
+            hover_tpl = f"<i>{xlbl}</i>: " + "%{x}<br>" + f"<i>{ylbl}</i>: " + "%{y}"
+            fig.update_traces(
+                marker_cornerradius="30%",
+                marker_line_width=3,
+                marker_pattern_fillmode="replace",
+                textposition="outside",
+                hovertemplate=hover_tpl,
+                opacity=1,
+                width=0.35,
+            )
+
+            figures[str(parameter)] = go.FigureWidget(fig)
+
+        return figures
 
     # constructor
 
@@ -51,312 +318,3 @@ class JumpTestBattery(TestBattery):
             if not isinstance(test, types):
                 raise ValueError(msg)
         super().__init__(*tests)
-
-    @property
-    def summary(self):
-        """
-        return a set of plotly FigureWidget for each relevant metric
-        and a table with the summary metrics
-        """
-
-        # get the data
-        tab = self.summary_table
-        if not any(i == "Side" for i in tab.columns):
-            tab.insert(0, "Side", np.tile("Bilateral", tab.shape[0]))
-        else:
-            tab.loc[tab.Side.isna(), "Side"] = "Bilateral"
-        tab.loc[tab.index, "Test"] = tab.Test.map(
-            lambda x: x.replace("JumpTest", "") + " Jump"
-        )
-        tab = tab.drop(["Mean", "Std"], axis=1)
-        tab.loc[tab.index, "Text"] = tab[["Best", "Unit"]].apply(
-            lambda x: str(abs(x[0]))[:5] + " " + x[1],
-            axis=1,
-            raw=True,
-        )
-        colors = px.colors.qualitative.Plotly
-        sides = np.sort(tab.Side.unique())
-        tab.loc[tab.index, "Color"] = tab.Side.map(
-            lambda x: colors[np.where(sides == x)[0][0]]
-        )
-        tab.sort_values("Side", inplace=True)
-
-        # get the normative values
-        normative_values = pd.read_excel(
-            io=join(dirname(dirname(__file__)), "normative_values.xlsx"),
-            sheet_name="Jumps",
-        )
-        normative_values.loc[normative_values.index, "Test"] = (
-            normative_values.Test.map(lambda x: x.replace(" ", ""))
-        )
-        colors = {
-            "Poor": px.colors.qualitative.Plotly[1],
-            "Normal": px.colors.qualitative.Plotly[2],
-            "Good": px.colors.qualitative.Plotly[3],
-            "Left": px.colors.qualitative.Plotly[0],
-            "Right": px.colors.qualitative.Plotly[0],
-            "Bilateral": px.colors.qualitative.Plotly[0],
-        }
-        patterns = {"Left": ".", "Right": "x", "Bilateral": "/"}
-
-        # generate one figure for each parameter
-        out: dict[str, go.FigureWidget] = {}
-        for parameter, dfr in tab.groupby("Parameter"):
-
-            # generate the output figure frame and get the ranges
-            vmax = dfr.Best.max() * 1.1
-            vmin = dfr.Best.min() * 0.9
-            tests = dfr.Test.unique().flatten().tolist()
-            fig = make_subplots(
-                rows=1,
-                cols=len(tests),
-                subplot_titles=tests,
-                horizontal_spacing=0.1,
-            )
-            for i, test in enumerate(tests):
-                dft = dfr.loc[dfr.Test == test]
-
-                # get the normative values
-                idx = normative_values.Test == test.replace(" ", "") + "Test"
-                norms = normative_values.loc[idx]
-                norms = norms.loc[norms.Parameter == parameter]
-                avg, std = norms[["mean", "std"]].values.astype(float).flatten()
-                if str(parameter).endswith("Imbalance"):
-                    vmax = max(vmax, avg + 3 * std)
-                    vmin = min(vmin, avg - 3 * std)
-                else:
-                    vmax = max(vmax, avg + 2 * std)
-                    vmin = min(vmin, avg - 2 * std)
-
-                # prepare the data
-                for side, dfs in dft.groupby("Side"):
-                    rnk = "Normal"
-                    if str(parameter).endswith("Imbalance"):
-                        xarr = dfs.Best.values.astype(float)
-                        yarr = dfs.Side.values.astype(str)
-                        orientation = "h"
-                        if xarr < -std or xarr > +std:
-                            rnk = "Poor"
-                    else:
-                        yarr = dfs.Best.values.astype(float)
-                        xarr = dfs.Side.values.astype(str)
-                        orientation = "v"
-                        if yarr < avg - std:
-                            rnk = "Poor"
-                        elif yarr > avg + std:
-                            rnk = "Good"
-                    tab.loc[dfs.index, "Rank"] = rnk
-                    fig.add_trace(
-                        row=1,
-                        col=i + 1,
-                        trace=go.Bar(
-                            x=xarr,
-                            y=yarr,
-                            text=dfs.Text.values,
-                            marker_color=colors[rnk],
-                            marker_pattern_shape=patterns[str(side)],
-                            marker_cornerradius="30%",
-                            marker_line_color=colors[rnk],
-                            marker_line_width=3,
-                            name=side,
-                            showlegend=False,
-                            opacity=1,
-                            orientation=orientation,
-                            textfont_size=16,
-                        ),
-                    )
-
-                # plot the normative areas
-                if str(parameter).endswith("Imbalance"):
-
-                    # this is the case of muscle symmetry
-                    fig.add_vrect(
-                        x0=-std,
-                        x1=+std,
-                        name="Normal",
-                        showlegend=bool(i == 0),
-                        fillcolor=colors["Normal"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_vrect(
-                        x0=-100,
-                        x1=max(-100, -std),
-                        name="Poor",
-                        showlegend=bool(i == 0),
-                        fillcolor=colors["Poor"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_vrect(
-                        x0=min(100, +std),
-                        x1=100,
-                        name="Poor",
-                        showlegend=False,
-                        fillcolor=colors["Poor"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_vline(
-                        x=0,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color="black",
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_vline(
-                        x=-std,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color=colors["Normal"],
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_vline(
-                        x=std,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color=colors["Normal"],
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                else:
-
-                    # this is any other case
-                    fig.add_hrect(
-                        y0=0,
-                        y1=max(0, avg - std),
-                        name="Poor",
-                        showlegend=bool(i == 0),
-                        fillcolor=colors["Poor"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_hline(
-                        y=avg - std,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color=colors["Poor"],
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_hrect(
-                        y0=avg - std,
-                        y1=avg + std,
-                        name="Normal",
-                        showlegend=bool(i == 0),
-                        fillcolor=colors["Normal"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_hline(
-                        y=avg,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color=colors["Normal"],
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_hrect(
-                        y0=avg + std,
-                        y1=1e15,
-                        name="Good",
-                        showlegend=bool(i == 0),
-                        fillcolor=colors["Good"],
-                        line_width=0,
-                        opacity=0.1,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-                    fig.add_hline(
-                        y=avg + std,
-                        name="line",
-                        showlegend=False,
-                        line_width=2,
-                        line_dash="dash",
-                        line_color=colors["Good"],
-                        opacity=0.5,
-                        row=1,  # type: ignore
-                        col=i + 1,  # type: ignore
-                    )
-
-            # update the layout
-            fig.update_traces(
-                zorder=0,
-                marker_pattern_fillmode="replace",
-                textposition="outside",
-            )
-            fig.update_layout(
-                title=parameter,
-                template="simple_white",
-                legend=dict(traceorder="normal"),
-            )
-            fig.update_xaxes(title="", matches=None)
-            fig.update_yaxes(title="")
-            if str(parameter).endswith("Imbalance"):
-                for col in np.arange(2) + 1:
-                    fig.add_annotation(
-                        text="Left",
-                        x=-45,
-                        y=0.5,
-                        xref="x",
-                        yref="y",
-                        align="left",
-                        valign="bottom",
-                        font_size=20,
-                        showarrow=False,
-                        row=1,
-                        col=col,
-                    )
-                    fig.add_annotation(
-                        text="Right",
-                        x=+45,
-                        y=0.5,
-                        xref="x",
-                        yref="y",
-                        align="right",
-                        valign="bottom",
-                        font_size=20,
-                        showarrow=False,
-                        row=1,
-                        col=col,
-                    )
-                fig.update_xaxes(range=[-100, 100], title="Asymmetry")
-                fig.update_yaxes(visible=False)
-            else:
-                fig.update_yaxes(range=[vmin, vmax], title=dft.Unit.values[0])
-
-            # store
-            out[str(parameter)] = go.FigureWidget(fig)
-
-        # adjust the output table
-        tab = tab[["Test", "Parameter", "Side", "Unit", "Best", "Rank"]]
-        tab.columns = pd.Index([i.replace("Best", "Value") for i in tab.columns])
-
-        return out, tab

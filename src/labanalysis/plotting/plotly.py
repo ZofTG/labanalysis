@@ -350,10 +350,7 @@ def bars_with_normative_bands(
     patterns: str | np.ndarray | list | None = None,
     orientation: Literal["h", "v"] = "v",
     unit: str | None = None,
-    intervals: dict[
-        str,
-        tuple[float | int | list[float | int], float | int | list[float | int], str],
-    ] = {},
+    intervals: pd.DataFrame = pd.DataFrame(),
 ):
     """
     Return a plotly FigureWidget and a dataframe with bars defining values
@@ -386,11 +383,21 @@ def bars_with_normative_bands(
     unit: str | None, optional
         The unit of measurement of the bars.
 
-    intervals: dict[str, tuple[float | int | list[float | int],float | int | list[float | int], str]]
-        one or more key-valued tuples. The keys shall define the normative band
-        name, while the tuple has to provide:
-            - the (optionally list) of lower-upper bounds
-            - a string defining the color
+    intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
 
     Returns
     -------
@@ -403,6 +410,7 @@ def bars_with_normative_bands(
 
     #  check the input data
     def _as_array(obj: object, lbl: str):
+        """check if obj is a numeric 1D numpy array"""
         if not isinstance(lbl, str):
             msg = "if data_frame is provided, xarr, yarr, facet_col and "
             msg += "facet_row must be strings denoting a single row in"
@@ -421,30 +429,24 @@ def bars_with_normative_bands(
         return arr
 
     def _is_part(dfr: pd.DataFrame, lbl: object):
+        """check if the lbl is a column of dfr"""
         msg = f"{lbl} must be a string defining one column of data_frame."
         if not isinstance(lbl, str):
             raise ValueError(msg)
         if not any([i == lbl for i in dfr.columns]):
             raise ValueError(msg)
 
-    def _get_rank(
-        x: float | int,
-        intervals: dict[
-            str,
-            tuple[
-                float | int | list[float | int], float | int | list[float | int], str
-            ],
-        ],
-    ):
-        for tup in intervals.values():
-            pairs = tup[0] if isinstance(tup[0], list) else [tup[0]]
-            for pair in pairs:
-                low, upp = pair  # type: ignore
+    def _get_rank(x: float | int, intervals: pd.DataFrame):
+        """return the rank corresponding to the x value"""
+        if intervals.shape[0] > 0:
+            for row in np.arange(intervals.shape[0]):
+                rnk, low, upp, clr = intervals.iloc[row].values.flatten()[-4:]
                 if x >= low and x <= upp:
-                    return tup[1]
-        return None
+                    return str(rnk), str(clr)
+        return None, None
 
     def _format_value(x: float | int, unit: str | None):
+        """return formatted value with unit of measurement"""
         return str(x)[:5] + ("" if unit is None else f" {unit}")
 
     if data_frame is None:
@@ -481,36 +483,37 @@ def bars_with_normative_bands(
         if not isinstance(unit, str):
             raise ValueError("unit must be a str object or None.")
 
+    # check the intervals
+    columns = ["Rank", "Lower", "Upper", "Color"]
+    msg = "intervals must be a pandas.DataFrame containing the "
+    msg += "following columns: " + str(columns)
+    msg2 = "Lower and Upper columns must contain only int or float-like values."
+    if not isinstance(intervals, pd.DataFrame):
+        raise ValueError(msg)
+    if intervals.shape[0] > 0:
+        for col in columns:
+            if col not in intervals.columns.tolist():
+                raise ValueError(msg)
+            if col in ["Lower", "Upper"]:
+                try:
+                    _ = intervals[col].astype(float)
+                except Exception:
+                    raise ValueError(msg2)
+
     if orientation == "h":
         dfr.loc[dfr.index, ["_Text"]] = dfr[xlbl].map(lambda x: _format_value(x, unit))
         amp = dfr[xlbl].abs().max() * 2
         rng = [-amp, amp]
+        rank_arr = dfr[xlbl]
     else:
         dfr.loc[dfr.index, ["_Text"]] = dfr[ylbl].map(lambda x: _format_value(x, unit))
         rng = [float(dfr[ylbl].min()) * 0.9, float(dfr[ylbl].max()) * 1.1]
-
-    if not isinstance(intervals, dict):
-        raise ValueError("intervals must be a dict")
-    for key, val in intervals.items():
-        if not isinstance(val, tuple) or len(val) != 2:
-            raise ValueError(f"{key} must be a tuple with 2 elements.")
-        pairs = [val[0]] if not isinstance(val[0], list) else val[0]
-        for i, pair in enumerate(pairs):
-            if len(pair) != 2 or not all([isinstance(i, (float, int)) for i in pair]):  # type: ignore
-                msg = f"{key}[0][{i}] must be a tuple or list with 2 numeric"
-                msg += " values."
-                raise ValueError(msg)
-            if np.isfinite(pair[0]):
-                rng[0] = np.min([rng[0], float(pair[0])])
-            if np.isfinite(pair[1]):
-                rng[1] = np.max([rng[1], float(pair[1])])
-        if not isinstance(val[1], str):
-            raise ValueError(f"{key}[1] must be a str object defining a color.")
-
-    if orientation == "v":
-        dfr.loc[dfr.index, ["_Rank"]] = [_get_rank(i, intervals) for i in dfr[ylbl]]
-    else:
-        dfr.loc[dfr.index, ["_Rank"]] = [_get_rank(i, intervals) for i in dfr[xlbl]]
+        rank_arr = dfr[ylbl]
+    for i, v in enumerate(rank_arr):
+        index = dfr.index[i]
+        rnk, clr = _get_rank(v, intervals)
+        dfr.loc[index, ["_Rank"]] = rnk
+        dfr.loc[index, ["_Color"]] = clr
 
     # get the output figure
     fig = px.bar(
@@ -525,40 +528,43 @@ def bars_with_normative_bands(
     )
 
     # add the intervals
-    for key, norm in intervals.items():
-        vals = norm[0] if isinstance(norm, list) else [norm[0]]
-        for pairs in vals:  # type: ignore
-            if not isinstance(pairs, list):
-                pairs = [pairs]
-            for n, (low, upp) in enumerate(pairs):
-                if not np.isfinite(low):
-                    low = rng[0]
-                if not np.isfinite(upp):
-                    upp = rng[1]
-                if orientation == "h":
-                    fig.add_vrect(
-                        x0=low,
-                        x1=upp,
-                        name=key,
-                        showlegend=bool(n == 0),
-                        fillcolor=norm[-1],
-                        line_width=0,
-                        opacity=0.1,
-                        legendgroup="norms",
-                        legendgrouptitle_text="Normative data",
-                    )
-                else:
-                    fig.add_hrect(
-                        y0=low,
-                        y1=upp,
-                        name=key,
-                        showlegend=bool(n == 0),
-                        fillcolor=norm[-1],
-                        line_width=0,
-                        opacity=0.1,
-                        legendgroup="norms",
-                        legendgrouptitle_text="Normative data",
-                    )
+    if intervals.shape[0] > 0:
+        rnks = []
+        for row in np.arange(intervals.shape[0]):
+            rnk, low, upp, clr = intervals.iloc[row].values.flatten()[-4:]
+            if not np.isfinite(low):
+                low = rng[0]
+            if not np.isfinite(upp):
+                upp = rng[1]
+            if rnk not in rnks:
+                showlegend = True
+                rnks += [rnk]
+            else:
+                showlegend = False
+            if orientation == "h":
+                fig.add_vrect(
+                    x0=low,
+                    x1=upp,
+                    name=rnk,
+                    showlegend=showlegend,
+                    fillcolor=clr,
+                    line_width=0,
+                    opacity=0.1,
+                    legendgroup="norms",
+                    legendgrouptitle_text="Normative data",
+                )
+            else:
+                fig.add_hrect(
+                    y0=low,
+                    y1=upp,
+                    name=rnk,
+                    showlegend=showlegend,
+                    fillcolor=clr,
+                    line_width=0,
+                    opacity=0.1,
+                    legendgroup="norms",
+                    legendgrouptitle_text="Normative data",
+                )
 
     # update the layout
     fig.for_each_annotation(lambda x: x.update(text=x.text.split("=")[1]))
@@ -571,7 +577,7 @@ def bars_with_normative_bands(
         fig.update_yaxes(title="")
         fig.update_xaxes(title="" if unit is None else unit, range=rng)
 
-    if len(intervals) != 0:
+    if intervals.shape[0] > 0:
         if plbl is not None:
             for pattern in dfr[plbl].unique():
                 for trace in fig.data:
@@ -583,7 +589,7 @@ def bars_with_normative_bands(
                             marker_line_color=clrs,
                         )
         else:
-            colors = dfr["_Rank"].values.tolist()
+            colors = dfr["_Color"].values.tolist()
             fig.update_traces(marker_color=colors, marker_line_color=colors)
     else:
         colors = pcolors.qualitative.Plotly[0]

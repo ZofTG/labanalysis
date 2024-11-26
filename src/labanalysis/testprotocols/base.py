@@ -367,17 +367,20 @@ class LabTest(Protocol):
     """
     abstract class defining the general methods expected from a test
 
+    Properties
+    ----------
+    name: str
+        the name of the test
+
     Methods
     -------
     summary
-        return a summary of the test results both as:
-            * plotly FigureWidget
-            * pandas dataframe
+        return a summary of the test results both as dictionary of plotly
+        FigureWidget objects and as pandas dataframe
 
     results
-        return the "raw" test results both as:
-            * plotly FigureWidget
-            * pandas dataframe
+        return the "raw" test results both as plotly FigureWidget and
+        pandas dataframe
 
     save
         a method allowing the saving of the data in an appropriate format.
@@ -386,19 +389,20 @@ class LabTest(Protocol):
         a class method to load a LabTest object saved in its own format.
     """
 
+    @property
+    def name(self):
+        """return the test name"""
+        return type(self).__name__
+
     def _make_summary_table(
         self,
-        normative_intervals: dict[
-            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
-        ] = {},
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
     ) -> pd.DataFrame: ...
 
     def _make_summary_plot(
         self,
-        normative_intervals: dict[
-            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
-        ] = {},
-    ) -> go.FigureWidget: ...
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ) -> dict[str, go.FigureWidget]: ...
 
     def _make_results_table(self) -> pd.DataFrame: ...
 
@@ -406,42 +410,21 @@ class LabTest(Protocol):
 
     def _check_norms(self, normative_intervals: object):
         """check the normative intervals architecture"""
-
-        if not isinstance(normative_intervals, dict):
-            raise ValueError("normative_intervals must be a dict")
-
-        for key, norms in normative_intervals.items():
-            if not isinstance(key, str):
-                raise ValueError(f"{key} must be a str.")
-            if not isinstance(norms, dict):
-                raise ValueError(f"the value of {key} must be a dict object.")
-            for lvl, vals in norms.items():
-                if not isinstance(lvl, str):
-                    raise ValueError(f"{lvl} must be a str.")
-                if not isinstance(vals, tuple):
-                    msg = f"the value of {key}-{lvl} must be a tuple"
+        columns = ["Parameter", "Rank", "Lower", "Upper", "Color"]
+        msg = "normative_intervals must be a pandas.DataFrame containing the "
+        msg += "following columns: " + str(columns)
+        msg2 = "Lower and Upper columns must contain only int or float-like values."
+        if not isinstance(normative_intervals, pd.DataFrame):
+            raise ValueError(msg)
+        if normative_intervals.shape[0] > 0:
+            for col in columns:
+                if col not in normative_intervals.columns.tolist():
                     raise ValueError(msg)
-                msg = "the first and second values of each normative set "
-                msg += "must be a float, int or a list of float/int"
-                refs = vals[0] if isinstance(vals[0], list) else [vals[0]]
-                for val in refs:
-                    if not all([isinstance(i, (float, int)) for i in val]):
-                        raise ValueError(msg)
-                if (
-                    isinstance(vals[0], (float, int))
-                    != isinstance(vals[1], (float, int))
-                ) or (
-                    isinstance(vals[0], list)
-                    and isinstance(vals[1], list)
-                    and len(vals[0]) != len(vals[1])
-                ):
-                    msg = f"the first two elements of the {key}-{lvl} pair "
-                    msg += "must have the same number of elements."
-                    raise ValueError(msg)
-                if not isinstance(vals[1], str):
-                    msg = f"the third value of {key}-{lvl} "
-                    msg += "must be a string defining a valid color."
-                    raise ValueError(msg)
+                if col in ["Lower", "Upper"]:
+                    try:
+                        _ = normative_intervals[col].astype(float)
+                    except Exception:
+                        raise ValueError(msg2)
 
     def results(self):
         """
@@ -454,36 +437,38 @@ class LabTest(Protocol):
 
     def summary(
         self,
-        normative_intervals: dict[
-            str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]
-        ] = {},
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
     ):
         """
-        return a plotly bar plot highlighting the test summary and a table
-        reporting the summary data.
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
 
         Parameters
         ----------
-        normative_intervals: dict[str, dict[str, tuple[list[tuple[int | float]] | tuple[int | float], str]]],
-            one or more key-valued dictionaries defining the properties
-            returned by the test. The keys should be:
-                "Elevation"
-                "Takeoff velocity"
-                "<muscle> Imbalance"
-            Where <muscle> denotes an (optional) investigated muscle.
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
 
-            For each key, a dict shall be provided as value having structure:
-                band_name: (lower_bound, upper_bound, color)
+                Parameter: str
+                    the name of the parameter
 
-            Here the upper and lower bounds should be considered as inclusive
-            of the provided values, and the color should be a string object
-            that can be interpreted as color.
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
 
         Returns
         -------
-        fig: plotly FigureWidget
-            return a plotly FigureWidget object summarizing the results of the
-            test.
+        figures: dict[str, FigureWidget]
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
 
         tab: pandas DataFrame
             return a pandas dataframe with a summary of the test results.
@@ -557,16 +542,14 @@ class TestBattery(Protocol):
 
     Attributes
     ----------
-        tests
-            the list of tests being part of the battery.
+    tests
+        the list of tests being part of the battery.
 
     Methods
     -------
     summary
-        return a summary of the test battery results both as:
-            * dict with output parameters name as key and plotly FigureWidget
-            as values
-            * pandas dataframe.
+        return a summary of the test results both as dictionary of plotly
+        FigureWidget objects and as pandas dataframe
 
     save
         a method allowing the saving of the data in an appropriate format.
@@ -586,9 +569,78 @@ class TestBattery(Protocol):
         """return the list of tests being part of the test battery"""
         return self._tests
 
+    def _make_summary_table(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ) -> pd.DataFrame: ...
+
+    def _make_summary_plot(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ) -> dict[str, go.FigureWidget]: ...
+
+    def _check_norms(self, normative_intervals: object):
+        """check the normative intervals architecture"""
+        columns = ["Test", "Parameter", "Rank", "Lower", "Upper", "Color"]
+        msg = "normative_intervals must be a pandas.DataFrame containing the "
+        msg += "following columns: " + str(columns)
+        msg2 = "Lower and Upper columns must contain only int or float-like values."
+        if not isinstance(normative_intervals, pd.DataFrame):
+            raise ValueError(msg)
+        for col in columns:
+            if col not in normative_intervals.columns.tolist():
+                raise ValueError(msg)
+            if col in ["Lower", "Upper"]:
+                try:
+                    _ = normative_intervals[col].astype(float)
+                except Exception:
+                    raise ValueError(msg2)
+
     def summary(
-        self, **normative_intervals
-    ) -> tuple[dict[str, go.FigureWidget], pd.DataFrame]: ...
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
+        """
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Test: str
+                    the name of the target test
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        figures: dict[str, FigureWidget]
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
+
+        tab: pandas DataFrame
+            return a pandas dataframe with a summary of the test results.
+        """
+        self._check_norms(normative_intervals)
+        res = self._make_summary_table(normative_intervals)
+        fig = self._make_summary_plot(normative_intervals)
+        return fig, res
 
     def save(self, file_path: str) -> None:
         """
