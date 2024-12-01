@@ -367,10 +367,9 @@ class PlankTest(ProneStance, LabTest):
         return the object as ProneStance instance
     """
 
-    # * attributes
+    # * methods
 
-    @property
-    def results_table(self):
+    def _make_results_table(self):
         """Return a table containing the test results."""
         # take a dataframe of the available data and remove the unnecessary
         # elements
@@ -397,8 +396,10 @@ class PlankTest(ProneStance, LabTest):
         fps.columns = pd.MultiIndex.from_tuples(cols)
         return fps
 
-    @property
-    def summary_table(self):
+    def _make_summary_table(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
         """Return a table with summary statistics about the test."""
         # generate a long format table
         res = self.results_table
@@ -461,10 +462,13 @@ class PlankTest(ProneStance, LabTest):
 
         return out
 
-    @property
-    def summary(self):
+    def _make_summary_plot(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
         """
-        return a figure highlighting the test results
+        return a figure highlighting the test results and a table with the
+        summary stats
         and a table with the summary metrics
         """
 

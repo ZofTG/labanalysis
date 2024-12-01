@@ -274,8 +274,8 @@ class JumpTestBattery(TestBattery):
 
             # update the traces
             for trace in fig.data:
-                test = trace["y" if "Imbalance" in str(parameter) else "x"][0]
-                side = trace["name"]
+                test = trace["y" if "Imbalance" in str(parameter) else "x"][0]  # type: ignore
+                side = trace["name"]  # type: ignore
                 clr = dfp.loc[(dfp.Test == test) & (dfp.Side == side)]
                 clr = str(clr.Color.values[0])
                 clr = px.colors.qualitative.Plotly[0] if clr == "nan" else clr

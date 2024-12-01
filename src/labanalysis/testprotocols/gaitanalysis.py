@@ -4,491 +4,123 @@
 
 
 from os.path import exists
-from typing import Callable, Iterable, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
-
-from scipy.signal import detrend
-
-from ..signalprocessing import (
-    continuous_batches,
-    fillna,
-    butterworth_filt,
-    find_peaks,
-    psd,
-)
 from labio import read_tdf
 
+from .. import signalprocessing as labsp
 
 #! CONSTANTS
 
 
 __all__ = [
     "GaitTest",
+    "Stride",
     "RunningStep",
-    "RunningStride",
     "WalkingStep",
-    "WalkingStride",
 ]
 
 
 #! CLASSESS
 
 
-class _Step:
-    """
-    Step class used internally for generation of walking and running step
-    objects.
-
-    Parameters
-    ----------
-    foot_strike_s: int | float
-        the foot-strike time in seconds.
-
-    mid_stance_s: int | float
-        the mid-stance time in seconds.
-
-    toe_off_s: int | float
-        the toe_off time in seconds.
-
-    landing_s: int | float
-        the landing time in seconds.
-
-    side: Literal['RIGHT', 'LEFT'] | None (default = None)
-        the step's side.
-
-    grf: Iterable[int | float] | None (default = None)
-        the ground reaction force data over the step
-
-    cop_ml: Iterable[int | float] | None (default = None)
-        the medial-lateral coordinates of the centre of pressure over the step
-
-    cop_ap: Iterable[int | float] | None (default = None)
-        the anterior-posterior coordinates of the centre of pressure over the step
-    """
-
-    _fs: int | float
-    _ms: int | float
-    _to: int | float
-    _ld: int | float
-    _side: Literal["RIGHT", "LEFT"] | None
-    _grf: Iterable[int | float] | None
-    _cop_ml: Iterable[int | float] | None
-    _cop_ap: Iterable[int | float] | None
-
-    @property
-    def grf_kgf(self):
-        """return the ground reaction force data in kgf"""
-        if self._grf is None:
-            return None
-        out = np.array(self._grf, dtype=float).flatten()
-        time = np.linspace(self.foot_strike_s, self.landing_s, len(out))
-        return out, time.flatten()
-
-    @property
-    def cop_ml_m(self):
-        """return the medial-lateral coordinates of the centre of pressure in m"""
-        if self._cop_ml is None:
-            return None
-        out = np.array(self._cop_ml, dtype=float).flatten()
-        time = np.linspace(self.foot_strike_s, self.landing_s, len(out))
-        return out, time.flatten()
-
-    @property
-    def cop_ap_m(self):
-        """return the anterior-posterior coordinates of the centre of pressure in m"""
-        if self._cop_ap is None:
-            return None
-        out = np.array(self._cop_ap, dtype=float).flatten()
-        time = np.linspace(self.foot_strike_s, self.landing_s, len(out))
-        return out, time.flatten()
-
-    @property
-    def foot_strike_s(self):
-        """return the foot-strike time"""
-        return self._fs
-
-    @property
-    def mid_stance_s(self):
-        """return the mid_stance time"""
-        return self._ms
-
-    @property
-    def toe_off_s(self):
-        """return the toe-off time"""
-        return self._to
-
-    @property
-    def landing_s(self):
-        """return the landing time"""
-        return self._ld
-
-    @property
-    def step_time_s(self):
-        """return the step time"""
-        return self.landing_s - self.foot_strike_s
-
-    @property
-    def step_cadence_spm(self):
-        """return the foot-strike time"""
-        return 60.0 / self.step_time_s
-
-    @property
-    def grf_max_kgf(self):
-        """return the peak ground reaction force of the step"""
-        if self.grf_kgf is None:
-            return None
-        return float(np.max(self.grf_kgf))
-
-    @property
-    def lat_dis_m(self):
-        """return the lateral displacement during the step"""
-        if self.cop_ml_m is None:
-            return None
-        return float(abs(np.max(self.cop_ml_m) - np.min(self.cop_ml_m)))
-
-    @property
-    def side(self):
-        """return the step side"""
-        return self._side
-
-    def as_dict(self, user_weight_kg: float | int | None = None):
-        """
-        return the current step as dict
-
-        Parameters
-        ----------
-        user_weight_kg: float | int | None (optional, default = None)
-
-        Results
-        -------
-        out: dict[(str, str), None | int | float]
-            the output values
-        """
-        keys = [i for i in dir(self) if i[0] != "_" and i[:2] != "as"]
-        out = {}
-        for i in keys:
-            val = getattr(self, i)
-            if isinstance(val, tuple):
-                out["time"] = val[1]
-                val = val[0]
-            if isinstance(val, Callable):
-                if user_weight_kg is not None:
-                    out[i] = val(user_weight_kg)
-                    out["user_weight_kg"] = user_weight_kg
-                else:
-                    out[i] = None
-            else:
-                out[i] = val
-        return out
-
-    def __repr__(self):
-        return pd.Series(self.as_dict()).__repr__()
-
-    def __str__(self):
-        return pd.Series(self.as_dict()).__str__()
-
-    def __init__(
-        self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
-        landing_s: int | float,
-        side: Literal["RIGHT", "LEFT"] | None = None,
-        grf_kgf: Iterable[int | float] | None = None,
-        cop_ml: Iterable[int | float] | None = None,
-        cop_ap: Iterable[int | float] | None = None,
-    ):
-        self._fs = foot_strike_s
-        self._ms = mid_stance_s
-        self._to = toe_off_s
-        self._ld = landing_s
-        self._side = side
-        self._grf = grf_kgf
-        self._cop_ap = cop_ap
-        self._cop_ml = cop_ml
-        series = [grf_kgf, cop_ap, cop_ml]
-        lens = [len(i) for i in series if i is not None]  # type: ignore
-        if len(lens) > 0:
-            if not all(i == lens[0] for i in lens[1:]):
-                msg = "grf_kgf, cop_ml and cop_ap must have the same length."
-                raise ValueError(msg)
-
-
-class RunningStep(_Step):
-    """
-    Running Step object.
-
-    Parameters
-    ----------
-    foot_strike_s: int | float
-        the foot-strike time in seconds.
-
-    mid_stance_s: int | float
-        the mid-stance time in seconds.
-
-    toe_off_s: int | float
-        the toe_off time in seconds.
-
-    landing_s: int | float
-        the landing time in seconds.
-
-    side: Literal['RIGHT', 'LEFT'] | None (default = None)
-        the step's side.
-    """
-
-    @property
-    def contact_time_s(self):
-        """return the step contact time in seconds."""
-        return self.toe_off_s - self.foot_strike_s
-
-    @property
-    def propulsion_time_s(self):
-        """return the step propulsion time in seconds."""
-        return self.toe_off_s - self.mid_stance_s
-
-    @property
-    def loading_response_s(self):
-        """return the step loading response time in seconds."""
-        return self.mid_stance_s - self.foot_strike_s
-
-    @property
-    def flight_time_s(self):
-        """return the step flight time in seconds."""
-        return self.landing_s - self.toe_off_s
-
-    def vrt_dis_m(self, user_weight_kg: float | int = 70):
-        """
-        return the vertical displacement during the step
-
-        Parameters
-        ----------
-        user_weight_kg: float | int (default = 70)
-            the user weight in kg
-
-        Returns
-        -------
-        return the vertical displacement during the step in meters.
-
-        Description
-        -----------
-        the vertical displacement of the CoM is calculated assuming that,
-        during the flying phase, the motion of the CoM is parabolic:
-
-                                Hf = g * K ** 2 / 8
-        where:
-            K: is the flying time (in s)
-            g: is the acceleration of gravity (9.80665 m/s**2)
-
-        The resulting vertical displacement is then added to the vertical
-        displacement calculated from the measured force and according to
-        the Morin et al. (2005) model.
-
-                    Hc = C ** 2 * ( g / 8 - F / ( M * pi ** 2 ) )
-
-        where:
-            C: is twice the loading response time (in s)
-            F: is the peak force measured during the step (in N)
-            M: is the USER WEIGHT (in kg)
-
-        Thus, the total vertical displacement becomes:
-
-                            Ht = Hc + Hf
-
-        References
-        ----------
-        Morin, Jean Benoît; Dalleau, Georges; Kyröläinen, Heikki; Jeannin
-        Thibault; Belli, Alain;
-            A simple method for measuring stiffness during running.
-            2005 Journal of applied biomechanics 21(2):167-180.
-        """
-        # check if the necessary data are available
-        if self.grf_max_kgf is None:
-            return None
-
-        # do the calculations
-        Hf = (self.flight_time_s**2) / 8
-        Hc = (self.loading_response_s * 2) ** 2
-        Hc *= 1 / 8 - self.grf_max_kgf / user_weight_kg / np.pi**2
-        return 9.80665 * (Hf + Hc)
-
-    def __init__(
-        self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
-        landing_s: int | float,
-        side: Literal["RIGHT", "LEFT"] | None = None,
-    ):
-        super().__init__(
-            foot_strike_s=foot_strike_s,
-            mid_stance_s=mid_stance_s,
-            toe_off_s=toe_off_s,
-            landing_s=landing_s,
-            side=side,
-        )
-
-
-class WalkingStep(_Step):
-    """
-    Walking Step object.
-
-    Parameters
-    ----------
-    foot_strike_s: int | float
-        the foot-strike time in seconds.
-
-    mid_stance_s: int | float
-        the mid-stance time in seconds.
-
-    toe_off_s: int | float
-        the toe_off time in seconds.
-
-    landing_s: int | float
-        the landing time in seconds.
-
-    side: Literal['RIGHT', 'LEFT'] | None (default = None)
-        the step's side.
-    """
-
-    @property
-    def single_support_time_s(self):
-        """return the single support time in seconds."""
-        return self.landing_s - self.toe_off_s
-
-    @property
-    def double_support_time_s(self):
-        """return the double support time in seconds."""
-        return self.toe_off_s - self.foot_strike_s
-
-    def vrt_dis_m(self, user_weight_kg: float | int = 70):
-        """
-        return the vertical displacement during the step calculated via double
-        integration of the mean acceleration.
-
-        Parameters
-        ----------
-        user_weight_kg: float | int (default = 70)
-            the user weight in kg
-
-        Returns
-        -------
-        return the vertical displacement during the step in meters.
-
-        References
-        ----------
-        Saini, M., Kerrigan, D. C., Thirunarayan, M. A., & Duff-Raffaele, M.
-        (1998). The vertical displacement of the center of mass during walking:
-        a comparison of four measurement methods.
-        Journal of Biomechanical Engineering, 120(1), 133–139.
-        https://doi.org/10.1115/1.2834293
-        """
-        # check if the necessary data are available
-        if self.grf_kgf is None:
-            return None
-
-        # extract the (detrended) vertical displacement
-        F, T = self.grf_kgf
-        G = 9.80665
-        A = (F * G - user_weight_kg * G) / user_weight_kg
-        D = detrend(np.trapezoid(np.trapezoid(A, T), T).astype(float))
-
-        # get the range
-        return np.max(D) - np.min(D)
-
-    def __init__(
-        self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
-        landing_s: int | float,
-        side: Literal["RIGHT", "LEFT"] | None = None,
-    ):
-        super().__init__(
-            foot_strike_s=foot_strike_s,
-            mid_stance_s=mid_stance_s,
-            toe_off_s=toe_off_s,
-            landing_s=landing_s,
-            side=side,
-        )
-
-
-class _Stride:
+class Stride:
     """
     basic stride class.
 
     Parameters
     ----------
-    step1: WalkingStep
-        the first step of the stride.
+    foot-strike_s: int | float
+        the foot-strike time in seconds
 
-    step2: WalkingStep
-        the second step of the stride.
+    mid-stance_s: int | float
+        the mid-stance time in seconds
+
+    toe-off_s: int | float
+        the toe-off time in seconds
+
+    ending_s: int | float
+        the next foot-strike time in seconds
+
+    side: Literal['RIGHT', 'LEFT']
+        the side of the test
+
+    Note
+    ----
+    the stride stards from the toe-off
     """
 
-    _step1: WalkingStep | RunningStep
-    _step2: WalkingStep | RunningStep
+    _fs: float
+    _ms: float
+    _to: float
+    _ed: float
+    _side: Literal["RIGHT", "LEFT"] | None
+
+    # * properties
 
     @property
-    def step_1(self):
-        "return the first step"
-        return self._step1
+    def foot_strike_s(self):
+        """return the foot-strike time in seconds"""
+        return self._fs
 
     @property
-    def step_2(self):
-        "return the second step"
-        return self._step2
+    def mid_stance_s(self):
+        """return the mid-stance time in seconds"""
+        return self._ms
 
     @property
-    def stride_time_s(self):
-        """return the stride time in seconds"""
-        return self.step_1.step_time_s + self.step_2.step_time_s
+    def toe_off_s(self):
+        """return the toe-off time in seconds"""
+        return self._to
 
     @property
-    def stride_cadence_spm(self):
-        """return the stride cadence in spm"""
-        return 60.0 / self.stride_time_s
-
-    @property
-    def grf_kgf(self):
-        """return the ground reaction force data in kgf"""
-        if self.step_1.grf_kgf is None or self.step_2.grf_kgf is None:
-            return None
-        f1, t1 = self.step_1.grf_kgf
-        f2, t2 = self.step_2.grf_kgf
-        return np.concatenate([f1, f2[1:]]), np.concatenate([t1, t2[1:]])
-
-    @property
-    def cop_ml_m(self):
-        """return the medial-lateral coordinates of the centre of pressure in m"""
-        if self.step_1.cop_ml_m is None or self.step_2.cop_ml_m is None:
-            return None
-        f1, t1 = self.step_1.cop_ml_m
-        f2, t2 = self.step_2.cop_ml_m
-        return np.concatenate([f1, f2[1:]]), np.concatenate([t1, t2[1:]])
-
-    @property
-    def cop_ap_m(self):
-        """return the anterior-posterior coordinates of the centre of pressure in m"""
-        if self.step_1.cop_ap_m is None or self.step_2.cop_ap_m is None:
-            return None
-        f1, t1 = self.step_1.cop_ap_m
-        f2, t2 = self.step_2.cop_ap_m
-        return np.concatenate([f1, f2[1:]]), np.concatenate([t1, t2[1:]])
+    def ending_s(self):
+        """return the landing time in seconds"""
+        return self._ed
 
     @property
     def side(self):
-        """return the stride side"""
-        return self.step_1.side
+        """return the side of the stride"""
+        return self._side
+
+    @property
+    def _stride_time_s(self):
+        """return the stride time in seconds"""
+        return self.ending_s - self.toe_off_s
+
+    @property
+    def _contact_time_s(self):
+        """return the contact time in seconds"""
+        return self.ending_s - self.foot_strike_s
+
+    @property
+    def _flight_time_s(self):
+        """return the flight time in seconds"""
+        return self.foot_strike_s - self.toe_off_s
+
+    @property
+    def loading_response_time_s(self):
+        """return the loading response time in seconds"""
+        return self.mid_stance_s - self.foot_strike_s
+
+    @property
+    def propulsion_time_s(self):
+        """return the propulsion time in seconds"""
+        return self.ending_s - self.mid_stance_s
+
+    @property
+    def cadence_spm(self):
+        """return the cadence of the stride in strides per minute"""
+        return 60 / self._stride_time_s
+
+    # * methods
 
     def as_dict(self):
-        """return the current step as dict"""
-        st1 = self.step_1.as_dict()
-        st1 = {(i, self.step_1.side): v for i, v in st1.items() if i != "side"}
-        st2 = self.step_2.as_dict()
-        st2 = {(i, self.step_2.side): v for i, v in st2.items() if i != "side"}
-        return {**st1, **st2}
+        """return the object as dict"""
+        keys = [i for i in dir(self) if i[0] != "_" and i[:2] != "as"]
+        return {i: getattr(self, i) for i in keys}
 
     def __repr__(self):
         return pd.Series(self.as_dict()).__repr__()
@@ -496,74 +128,145 @@ class _Stride:
     def __str__(self):
         return pd.Series(self.as_dict()).__str__()
 
+    # * constructor
+
     def __init__(
         self,
-        step1: WalkingStep | RunningStep,
-        step2: WalkingStep | RunningStep,
+        foot_strike_s: int | float,
+        mid_stance_s: int | float,
+        toe_off_s: int | float,
+        ending_s: int | float,
+        side: Literal["RIGHT", "LEFT"] | None = None,
     ):
-        self._step1 = step1
-        self._step2 = step2
+        self._fs = float(foot_strike_s)
+        self._ms = float(mid_stance_s)
+        self._to = float(toe_off_s)
+        self._ed = float(ending_s)
+        self._side = side
 
 
-class WalkingStride(_Stride):
+class RunningStep(Stride):
     """
-    Walking Stride class.
+    basic running step class.
 
     Parameters
     ----------
-    step1: WalkingStep
-        the first step of the stride.
+    foot-strike_s: int | float
+        the foot-strike time in seconds
 
-    step2: WalkingStep
-        the second step of the stride.
+    mid-stance_s: int | float
+        the mid-stance time in seconds
+
+    toe-off_s: int | float
+        the toe-off time in seconds
+
+    ending_s: int | float
+        the next foot-strike time in seconds
+
+    side: Literal['RIGHT', 'LEFT']
+        the side of the test
+
+    Note
+    ----
+    the step stards from the toe-off
     """
 
-    _step1: WalkingStep
-    _step2: WalkingStep
+    # * properties
 
     @property
-    def single_support_time_s(self):
-        """return the stride single support time in seconds."""
-        return self._step1.single_support_time_s + self._step2.single_support_time_s
+    def step_time_s(self):
+        """return the stride time in seconds"""
+        return self._stride_time_s
 
     @property
-    def double_support_time_s(self):
-        """return the stride double support time in seconds."""
-        return self._step1.double_support_time_s + self._step2.double_support_time_s
+    def contact_time_s(self):
+        """return the contact time in seconds"""
+        return self._contact_time_s
+
+    @property
+    def flight_time_s(self):
+        """return the flight time in seconds"""
+        return self._flight_time_s
+
+    # * constructor
+
+    def __init__(
+        self,
+        foot_strike_s: int | float,
+        mid_stance_s: int | float,
+        toe_off_s: int | float,
+        ending_s: int | float,
+        side: Literal["RIGHT", "LEFT"] | None = None,
+    ):
+        super().__init__(
+            foot_strike_s=foot_strike_s,
+            mid_stance_s=mid_stance_s,
+            toe_off_s=toe_off_s,
+            ending_s=ending_s,
+            side=side,
+        )
+
+
+class WalkingStep(Stride):
+    """
+    basic walking step class.
+
+    Parameters
+    ----------
+    foot-strike_s: int | float
+        the foot-strike time in seconds
+
+    mid-stance_s: int | float
+        the mid-stance time in seconds
+
+    toe-off_s: int | float
+        the toe-off time in seconds
+
+    ending_s: int | float
+        the next toe-off time in seconds
+
+    side: Literal['RIGHT', 'LEFT']
+        the side of the test
+
+    Note
+    ----
+    the step stards from the toe-off
+    """
+
+    # * properties
+
+    @property
+    def step_time_s(self):
+        """return the stride time in seconds"""
+        return self._stride_time_s
 
     @property
     def stance_time_s(self):
-        """return the stance time in seconds."""
-        return self.step_2.toe_off_s - self.step_1.foot_strike_s
+        """return the stance time in seconds"""
+        return self._contact_time_s
 
     @property
     def swing_time_s(self):
-        """return the swing time in seconds."""
-        return self.step_2.landing_s - self.step_1.toe_off_s
+        """return the swing time in seconds"""
+        return self._flight_time_s
 
-    def __init__(self, step1: WalkingStep, step2: WalkingStep):
-        super().__init__(step1, step2)
+    # * constructor
 
-
-class RunningStride(_Stride):
-    """
-    Running Stride class.
-
-    Parameters
-    ----------
-    step1: RunningStep
-        the first step of the stride.
-
-    step2: RunningStep
-        the second step of the stride.
-    """
-
-    _step1: RunningStep
-    _step2: RunningStep
-
-    def __init__(self, step1: RunningStep, step2: RunningStep):
-        self._step1 = step1
-        self._step2 = step2
+    def __init__(
+        self,
+        foot_strike_s: int | float,
+        mid_stance_s: int | float,
+        toe_off_s: int | float,
+        ending_s: int | float,
+        side: Literal["RIGHT", "LEFT"] | None = None,
+    ):
+        super().__init__(
+            foot_strike_s=foot_strike_s,
+            mid_stance_s=mid_stance_s,
+            toe_off_s=toe_off_s,
+            ending_s=ending_s,
+            side=side,
+        )
 
 
 class GaitTest:
@@ -664,7 +367,7 @@ class GaitTest:
     _height_threshold: int | float
     _force_threshold: int | float
     _source_file: str | None
-    _steps: list[RunningStep | WalkingStep]
+    _strides: list[Stride]
     _vertical_axis: Literal["X", "Y", "Z"]
 
     @property
@@ -700,7 +403,7 @@ class GaitTest:
     @property
     def grf(self):
         """the ground reaction forces"""
-        return self._cop
+        return self._grf
 
     @property
     def preprocessed(self):
@@ -732,58 +435,15 @@ class GaitTest:
         """the detected steps"""
         return self._steps
 
-    @property
-    def strides(self):
-        """the detected strides"""
-        strides: list[RunningStride | WalkingStride] = []
-        for st1, st2 in zip(self._steps[:-1], self._steps[1:]):
-            valid_stride = (
-                st1.landing_s == st2.foot_strike_s
-                and st1.side is not None
-                and st2.side is not None
-                and st1.side != st2.side
-            )
-            if (
-                valid_stride
-                and isinstance(st1, RunningStep)
-                and isinstance(st2, RunningStep)
-            ):
-                strides += [RunningStride(st1, st2)]
-            elif (
-                valid_stride
-                and isinstance(st1, WalkingStep)
-                and isinstance(st2, WalkingStep)
-            ):
-                strides += [WalkingStride(st1, st2)]
-
-        return strides
-
     # * methods
 
-    def strides_summary(self):
-        """return a summary of the collected strides"""
-        out = []
-        for i, stride in enumerate(self.strides):
-            line = pd.DataFrame(pd.Series(stride.as_dict())).T
-            line.insert(0, ("Stride", "#"), [i + 1])
-            out += [line]
-        out = pd.concat(out, ignore_index=True)
-        out.sort_index(axis=1, inplace=True)
-        return out
-
-    def steps_summary(self):
+    def summary(self):
         """return a summary of the collected steps"""
         out = []
         for i, step in enumerate(self.steps):
-            line = pd.DataFrame(pd.Series(step.as_dict())).T
-            line.insert(0, "step_#", [i + 1])
-            out += [line]
-        out = pd.concat(out, ignore_index=True)
-        steps = out["step_#"].values.astype(int).flatten()
-        out.drop("step_#", axis=1, inplace=True)
-        out.sort_index(axis=1, inplace=True)
-        out.insert(0, "step_#", steps)
-        return out
+            out += [pd.DataFrame(pd.Series(step.as_dict())).T]
+        out = pd.concat(out, ignore_index=True).sort_values("toe_off_s")
+        return out.reset_index(drop=True)
 
     def _valid_dataframe(
         self,
@@ -845,7 +505,7 @@ class GaitTest:
 
         # remove missing values at the beginning and at the end of the frame
         all_nans_mask = frame.isna().all(axis=1).values.astype(bool).flatten()
-        batches = continuous_batches(all_nans_mask)
+        batches = labsp.continuous_batches(all_nans_mask)
         if len(batches) > 0 and batches[0][0] == 0:
             idx_start = batches[0][-1] + 1
         else:
@@ -857,11 +517,11 @@ class GaitTest:
         idx = np.arange(idx_start, idx_stop)
 
         # fill missing values
-        out = pd.DataFrame(fillna(frame.iloc[idx, :], filling_value, 6))
+        out = pd.DataFrame(labsp.fillna(frame.iloc[idx, :], filling_value, 6))
 
         # smooth all marker coordinates
         return out.apply(
-            butterworth_filt,  # type: ignore
+            labsp.butterworth_filt,  # type: ignore
             fcut=cutoff_freq,
             fsamp=1 / np.mean(np.diff(frame.index.to_numpy())),
             order=6,
@@ -894,111 +554,74 @@ class GaitTest:
             vlc -= vlc.min(axis=0)
             vrc -= vrc.min(axis=0)
 
-            # get the scaled vertical displacement
-            vlc /= vlc.max(axis=0)
-            vrc /= vrc.max(axis=0)
+            # get the mean values between toe and metatarsal heads
+            flc = vlc[[i for i in ["Heel", "Mid"] if i in vlc.columns.tolist()]]
+            flc = flc.min(axis=1)
+            frc = vrc[[i for i in ["Heel", "Mid"] if i in vrc.columns.tolist()]]
+            frc = frc.min(axis=1)
 
             # get the mean values (they are used for mid-stance detection)
             mlc = vlc.mean(axis=1)
             mrc = vrc.mean(axis=1)
 
-            # get the location of the local minima along the relevant axes
-            def get_local_minima(arr: np.ndarray, time: np.ndarray):
+            # get the toe
+            tlc = vlc[["Toe"]]
+            trc = vrc[["Toe"]]
 
-                # rescale the array to 0-1
-                scaled = (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
-
-                # get the local minima lower than the height threshold
-                mins = find_peaks(-scaled, height=-0.1)
-
-                # get the mean step time
+            # get the strides
+            strides = []
+            for side, fd, md, td in zip(
+                ["LEFT", "RIGHT"], [flc, frc], [mlc, mrc], [tlc, trc]
+            ):
+                favg = fd.values.astype(float).flatten()
+                mavg = md.values.astype(float).flatten()
+                tavg = td.values.astype(float).flatten()
+                time = fd.index.to_numpy()
                 fsamp = float(1 / np.mean(np.diff(time)))
-                frq, pow = psd(scaled, fsamp)
-                ffrq = frq[np.argmax(pow)]
+                frq, pwr = labsp.psd(favg, fsamp)
+                ffrq = frq[np.argmax(pwr)]
                 step_time = 1 / ffrq
+                dsamples = int(step_time * fsamp * 0.1)
+                condition = tavg < self.height_threshold
+                to_batches = labsp.continuous_batches(condition)
+                toi = [i[-1] for i in to_batches if len(i) > dsamples]
+                for to0, to1 in zip(toi[:-1], toi[1:]):
+                    condition = favg[to0:] < self.height_threshold
+                    fs_batches = labsp.continuous_batches(condition)
+                    if len(fs_batches) > 0:
+                        fs = fs_batches[0][0] + to0
+                        if fs > to1:
+                            continue
+                        try:
+                            ms = int(np.argmin(mavg[fs:to1])) + fs
+                        except Exception:
+                            continue
+                        if ms > to1:
+                            continue
+                        stride = Stride(
+                            foot_strike_s=float(time[fs]),
+                            mid_stance_s=float(time[ms]),
+                            toe_off_s=float(time[to0]),
+                            ending_s=float(time[to1]),
+                            side=str(side).upper(),  # type: ignore
+                        )
+                        strides += [stride]
 
-                # pack the local minima in groups separated by half of the
-                # step time
-                dsamples = int(step_time * fsamp / 3)
-                diffs = np.diff(mins)
-                diffs = np.concatenate([[diffs[0]], diffs])
-                locs = mins[diffs > dsamples]
-                times = np.array([time[i] for i in locs]).astype(float)
-                return times
-
-            evts_map = {}
-            evts_map["FS LEFT"] = get_local_minima(
-                arr=(
-                    vlc[[i for i in ["Heel", "Mid"] if i in vlc.columns]]
-                    .mean(axis=1)
-                    .values.astype(float)
-                ),
-                time=vlc.index.to_numpy(),
-            )
-            evts_map["FS RIGHT"] = get_local_minima(
-                arr=(
-                    vrc[[i for i in ["Heel", "Mid"] if i in vrc.columns]]
-                    .mean(axis=1)
-                    .values.astype(float)
-                ),
-                time=vlc.index.to_numpy(),
-            )
-            evts_map["MS LEFT"] = get_local_minima(
-                arr=mlc.values.astype(float),
-                time=mlc.index.to_numpy(),
-            )
-            evts_map["MS RIGHT"] = get_local_minima(
-                arr=mrc.values.astype(float),
-                time=mrc.index.to_numpy(),
-            )
-            evts_map["TO LEFT"] = get_local_minima(
-                arr=vlc.Toe.values.astype(float),
-                time=vlc.index.to_numpy(),
-            )
-            evts_map["TO RIGHT"] = get_local_minima(
-                arr=vrc.Toe.values.astype(float),
-                time=vrc.index.to_numpy(),
-            )
-            self._extract_steps(evts_map)
-
-    def _extract_steps(
-        self,
-        evts: dict[str, np.ndarray],
-    ):
-        """extract steps from events map"""
-        evts_val = np.concatenate(list(evts.values()))
-        evts_lbl = [np.tile(i, len(v)) for i, v in evts.items()]
-        evts_lbl = np.concatenate(evts_lbl)
-        evts_idx = np.argsort(evts_val)
-        evts_val = evts_val[evts_idx]
-        evts_side = np.array([i.split(" ")[1] for i in evts_lbl[evts_idx]])
-        evts_lbl = np.array([i.split(" ")[0] for i in evts_lbl[evts_idx]])
-
-        # get the steps
-        run_seq = ["FS", "MS", "TO", "LD"]
-        walk_seq = ["FS", "TO", "MS", "LD"]
-        for n in np.arange(0, len(evts_lbl) - 4, 3):
-            idx = np.arange(4) + n
-            seq = evts_lbl[idx].copy()
-            seq[-1] = "LD"
-            sides = evts_side[idx].copy()
-            vals = evts_val[idx].copy()
-            s0 = sides[0]
-            if (
-                all([i == v for i, v in zip(seq, run_seq)])
-                & all(i == s0 for i in sides[:-1])
-                & (sides[-1] != s0)
-            ):  # running
-                # TODO add COP and GRF parameters
-                self._steps += [RunningStep(*vals, side=s0.upper())]
-            elif (
-                all([i == v for i, v in zip(seq, walk_seq)])
-                & all(i == s0 for i in sides[2:-1])
-                & (sides[1] != s0)
-                & (sides[-1] != s0)
-            ):  # walking
-                # TODO add COP and GRF parameters
-                self._steps += [WalkingStep(*vals, side=s0.upper())]
+            # extrapolate the steps from each stride
+            self._steps = []
+            for stride0, stride1 in zip(strides[:-1], strides[1:]):
+                if stride1.foot_strike_s < stride0.ending_s:
+                    step_class = WalkingStep
+                else:
+                    step_class = RunningStep
+                step = step_class(
+                    foot_strike_s=stride0.foot_strike_s,
+                    mid_stance_s=stride0.mid_stance_s,
+                    toe_off_s=stride0.toe_off_s,
+                    ending_s=stride1.toe_off_s,
+                    side=stride0.side,
+                )
+                self._steps += [step]
 
     # * constructors
 
@@ -1013,7 +636,7 @@ class GaitTest:
         lmidfoot: pd.DataFrame | None = None,
         rmidfoot: pd.DataFrame | None = None,
         preprocess: bool = True,
-        height_thresh: float | int = 0.1,
+        height_thresh: float | int = 0.02,
         force_thresh: float | int = 30,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
     ):
@@ -1055,7 +678,7 @@ class GaitTest:
         if self._valid_dataframe(grf):
             cols = grf.columns.get_level_values(0)  # type: ignore
             cols = pd.MultiIndex.from_product(
-                iterables=[["GRF"], ["X", "Y", "Z"], ["m"]],
+                iterables=[["GRF"], ["X", "Y", "Z"], ["N"]],
                 names=["NAME", "AXIS", "UNIT"],
             )
             obj = grf.copy()  # type: ignore
@@ -1136,7 +759,7 @@ class GaitTest:
         ltoe_label: str | None = None,
         lmid_label: str | None = None,
         rmid_label: str | None = None,
-        height_thresh: float | int = 0.1,
+        height_thresh: float | int = 0.02,
         force_thresh: float | int = 30,
     ):
         """
@@ -1193,8 +816,6 @@ class GaitTest:
             "rheel": rheel_label,
             "ltoe": ltoe_label,
             "rtoe": rtoe_label,
-            "lmidfoot": lmid_label,
-            "rmidfoot": rmid_label,
         }
         out = {}
         if np.any([i is not None for i in markers.values()]):
@@ -1206,6 +827,14 @@ class GaitTest:
                 raise ValueError(msg)
             for key, value in markers.items():
                 if value is not None:
+                    out[key] = mks[value]
+        opt_markers = {
+            "lmidfoot": lmid_label,
+            "rmidfoot": rmid_label,
+        }
+        if np.any([i is not None for i in opt_markers.values()]):
+            for key, value in opt_markers.items():
+                if value in mks.columns.tolist():
                     out[key] = mks[value]
 
         # check the grf
