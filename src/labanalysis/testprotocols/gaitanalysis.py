@@ -9,6 +9,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 from labio import read_tdf
+from plotly.subplots import make_subplots
 
 from .. import signalprocessing as labsp
 
@@ -17,28 +18,43 @@ from .. import signalprocessing as labsp
 
 __all__ = [
     "GaitTest",
-    "Stride",
     "RunningStep",
-    "WalkingStep",
+    "WalkingStride",
 ]
 
 
 #! CLASSESS
 
 
-class Stride:
+class GaitCycle:
+    """basic gait class to be properly implemented"""
+
+    def as_dict(self):
+        """return the object as dict"""
+        keys = [i for i in dir(self) if i[0] != "_" and i[:2] != "as"]
+        out = {i: getattr(self, i) for i in keys}
+        return {i: float(v) if i != "side" else str(v) for i, v in out.items()}
+
+    def __repr__(self):
+        return pd.Series(self.as_dict()).__repr__()
+
+    def __str__(self):
+        return pd.Series(self.as_dict()).__str__()
+
+
+class RunningStep(GaitCycle):
     """
-    basic stride class.
+    basic running step class.
 
     Parameters
     ----------
-    foot-strike_s: int | float
+    footstrike_s: int | float
         the foot-strike time in seconds
 
-    mid-stance_s: int | float
+    midstance_s: int | float
         the mid-stance time in seconds
 
-    toe-off_s: int | float
+    toeoff_s: int | float
         the toe-off time in seconds
 
     ending_s: int | float
@@ -47,9 +63,30 @@ class Stride:
     side: Literal['RIGHT', 'LEFT']
         the side of the test
 
+    Attributes
+    ----------
+    step_time_s: float
+        the step time in seconds
+
+    contact_time_s: float
+        the contact time in seconds
+
+    loading_response_time_s: float
+        the loading response time in seconds
+
+    propulsion_time_s: float
+        the propulsive time in seconds
+
+    flight_time_s: float
+        the flight time in seconds
+
+    cadence_spm: float
+        the pace of the step in steps per minute
+
     Note
     ----
-    the stride stards from the toe-off
+    the step starts from the toeoff and ends at the next toeoff of the
+    contralateral foot.
     """
 
     _fs: float
@@ -61,17 +98,17 @@ class Stride:
     # * properties
 
     @property
-    def foot_strike_s(self):
+    def footstrike_s(self):
         """return the foot-strike time in seconds"""
         return self._fs
 
     @property
-    def mid_stance_s(self):
+    def midstance_s(self):
         """return the mid-stance time in seconds"""
         return self._ms
 
     @property
-    def toe_off_s(self):
+    def toeoff_s(self):
         """return the toe-off time in seconds"""
         return self._to
 
@@ -86,187 +123,206 @@ class Stride:
         return self._side
 
     @property
-    def _stride_time_s(self):
+    def _step_time_s(self):
         """return the stride time in seconds"""
-        return self.ending_s - self.toe_off_s
+        return self.ending_s - self.toeoff_s
 
     @property
     def _contact_time_s(self):
         """return the contact time in seconds"""
-        return self.ending_s - self.foot_strike_s
+        return self.ending_s - self.footstrike_s
 
     @property
     def _flight_time_s(self):
         """return the flight time in seconds"""
-        return self.foot_strike_s - self.toe_off_s
+        return self.footstrike_s - self.toeoff_s
 
     @property
     def loading_response_time_s(self):
         """return the loading response time in seconds"""
-        return self.mid_stance_s - self.foot_strike_s
+        return self.midstance_s - self.footstrike_s
 
     @property
     def propulsion_time_s(self):
         """return the propulsion time in seconds"""
-        return self.ending_s - self.mid_stance_s
+        return self.ending_s - self.midstance_s
 
     @property
     def cadence_spm(self):
         """return the cadence of the stride in strides per minute"""
-        return 60 / self._stride_time_s
-
-    # * methods
-
-    def as_dict(self):
-        """return the object as dict"""
-        keys = [i for i in dir(self) if i[0] != "_" and i[:2] != "as"]
-        return {i: getattr(self, i) for i in keys}
-
-    def __repr__(self):
-        return pd.Series(self.as_dict()).__repr__()
-
-    def __str__(self):
-        return pd.Series(self.as_dict()).__str__()
+        return 60 / self._step_time_s
 
     # * constructor
 
     def __init__(
         self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
+        footstrike_s: int | float,
+        midstance_s: int | float,
+        toeoff_s: int | float,
         ending_s: int | float,
         side: Literal["RIGHT", "LEFT"] | None = None,
     ):
-        self._fs = float(foot_strike_s)
-        self._ms = float(mid_stance_s)
-        self._to = float(toe_off_s)
+        super().__init__()
+        self._fs = float(footstrike_s)
+        self._ms = float(midstance_s)
+        self._to = float(toeoff_s)
         self._ed = float(ending_s)
         self._side = side
 
 
-class RunningStep(Stride):
+class WalkingStride(GaitCycle):
     """
-    basic running step class.
+    basic walking stride class.
 
     Parameters
     ----------
-    foot-strike_s: int | float
-        the foot-strike time in seconds
+    ipsilateral_toeoff_s: int | float
+        the toe-off time in seconds of the contralateral foot defining the start
+        of the step
 
-    mid-stance_s: int | float
-        the mid-stance time in seconds
+    ipsilateral_footstrike_s: int | float
+        the foot-strike time in seconds of the foot setting the start of the
+        stance phase
 
-    toe-off_s: int | float
-        the toe-off time in seconds
+    contralateral_toeoff_s: int | float
+        the toeoff of the contralateral foot. This sets the end of the
+        double-support phase
 
     ending_s: int | float
-        the next foot-strike time in seconds
+        the toeoff time in seconds of the ipsilateral foot setting the end
+        of the step
 
     side: Literal['RIGHT', 'LEFT']
         the side of the test
 
-    Note
-    ----
-    the step stards from the toe-off
-    """
-
-    # * properties
-
-    @property
-    def step_time_s(self):
-        """return the stride time in seconds"""
-        return self._stride_time_s
-
-    @property
-    def contact_time_s(self):
-        """return the contact time in seconds"""
-        return self._contact_time_s
-
-    @property
-    def flight_time_s(self):
-        """return the flight time in seconds"""
-        return self._flight_time_s
-
-    # * constructor
-
-    def __init__(
-        self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
-        ending_s: int | float,
-        side: Literal["RIGHT", "LEFT"] | None = None,
-    ):
-        super().__init__(
-            foot_strike_s=foot_strike_s,
-            mid_stance_s=mid_stance_s,
-            toe_off_s=toe_off_s,
-            ending_s=ending_s,
-            side=side,
-        )
-
-
-class WalkingStep(Stride):
-    """
-    basic walking step class.
-
-    Parameters
+    Attributes
     ----------
-    foot-strike_s: int | float
-        the foot-strike time in seconds
+    stride_time_s: float
+        the stride time in seconds
 
-    mid-stance_s: int | float
-        the mid-stance time in seconds
+    stance_time_s: float
+        the stance time in seconds
 
-    toe-off_s: int | float
-        the toe-off time in seconds
+    swing_time_s: float
+        the swing time in seconds
 
-    ending_s: int | float
-        the next toe-off time in seconds
+    single_support_time_s: float
+        the single support time in seconds
 
-    side: Literal['RIGHT', 'LEFT']
-        the side of the test
+    double_support_time_s: float
+        the double support time in seconds
+
+    step_time_s: float
+        the time lapse between one toe-off and the one of the contralateral
+        step in seconds.
 
     Note
     ----
-    the step stards from the toe-off
+    the stride starts from the toe-off of the ipsilateral foot.
     """
+
+    _ipsilateral_footstrike_s: float
+    _ipsilateral_toeoff_s: float
+    _contralateral_footstrike_s: float
+    _contralateral_toeoff_s: float
+    _ending_s: float
+    _side: Literal["RIGHT", "LEFT"] | None
 
     # * properties
 
     @property
-    def step_time_s(self):
+    def ipsilateral_footstrike_s(self):
+        """
+        return the foot-strike time of the foot performing the actual stride
+        in seconds
+        """
+        return self._ipsilateral_footstrike_s
+
+    @property
+    def contralateral_footstrike_s(self):
+        """
+        return the foot-strike time of the foot not performing the actual stride
+        in seconds
+        """
+        return self._contralateral_footstrike_s
+
+    @property
+    def ipsilateral_toeoff_s(self):
+        """
+        return the toe-off time of the foot performing the actual stride
+        in seconds
+        """
+        return self._ipsilateral_toeoff_s
+
+    @property
+    def contralateral_toeoff_s(self):
+        """
+        return the toe-off time of the foot not performing the actual stride
+        in seconds
+        """
+        return self._contralateral_toeoff_s
+
+    @property
+    def ending_s(self):
+        """
+        return the ending toe-off (i.e. the second ipsilateral toeoff time)
+        in seconds
+        """
+        return self._ending_s
+
+    @property
+    def side(self):
+        """return the side of the stride"""
+        return self._side
+
+    @property
+    def stride_time_s(self):
         """return the stride time in seconds"""
-        return self._stride_time_s
+        return self.ending_s - self.ipsilateral_toeoff_s
+
+    @property
+    def step_time_s(self):
+        """return the step time in seconds"""
+        return self.contralateral_toeoff_s - self.ipsilateral_toeoff_s
 
     @property
     def stance_time_s(self):
         """return the stance time in seconds"""
-        return self._contact_time_s
+        return self.ending_s - self.ipsilateral_footstrike_s
 
     @property
     def swing_time_s(self):
         """return the swing time in seconds"""
-        return self._flight_time_s
+        return self.ipsilateral_footstrike_s - self.ipsilateral_toeoff_s
+
+    @property
+    def single_support_time_s(self):
+        """return the single support time in seconds"""
+        return self.contralateral_toeoff_s - self.contralateral_footstrike_s
+
+    @property
+    def double_support_time_s(self):
+        """return the double support time in seconds"""
+        return self.stride_time_s - self.single_support_time_s
 
     # * constructor
 
     def __init__(
         self,
-        foot_strike_s: int | float,
-        mid_stance_s: int | float,
-        toe_off_s: int | float,
+        ipsilateral_toeoff_s: int | float,
+        ipsilateral_footstrike_s: int | float,
+        contralateral_toeoff_s: int | float,
+        contralateral_footstrike_s: int | float,
         ending_s: int | float,
         side: Literal["RIGHT", "LEFT"] | None = None,
     ):
-        super().__init__(
-            foot_strike_s=foot_strike_s,
-            mid_stance_s=mid_stance_s,
-            toe_off_s=toe_off_s,
-            ending_s=ending_s,
-            side=side,
-        )
+        super().__init__()
+        self._ipsilateral_footstrike_s = ipsilateral_footstrike_s
+        self._ipsilateral_toeoff_s = ipsilateral_toeoff_s
+        self._contralateral_footstrike_s = contralateral_footstrike_s
+        self._contralateral_toeoff_s = contralateral_toeoff_s
+        self._ending_s = ending_s
+        self._side = side
 
 
 class GaitTest:
@@ -367,7 +423,7 @@ class GaitTest:
     _height_threshold: int | float
     _force_threshold: int | float
     _source_file: str | None
-    _strides: list[Stride]
+    _strides: list[RunningStep | WalkingStride]
     _vertical_axis: Literal["X", "Y", "Z"]
 
     @property
@@ -431,19 +487,20 @@ class GaitTest:
         return self._source_file
 
     @property
-    def steps(self):
-        """the detected steps"""
-        return self._steps
+    def cycles(self):
+        """the detected gait cycles"""
+        return self._cycles
 
     # * methods
 
     def summary(self):
         """return a summary of the collected steps"""
-        out = []
-        for i, step in enumerate(self.steps):
-            out += [pd.DataFrame(pd.Series(step.as_dict())).T]
-        out = pd.concat(out, ignore_index=True).sort_values("toe_off_s")
-        return out.reset_index(drop=True)
+
+        # get the cycles data
+        out = [pd.DataFrame(pd.Series(i.as_dict())).T for i in self.cycles]
+        out = pd.concat(out, ignore_index=True).reset_index(drop=True)
+
+        return out
 
     def _valid_dataframe(
         self,
@@ -530,13 +587,13 @@ class GaitTest:
             raw=True,
         )
 
-    def _find_steps_from_grf(self):
+    def _find_cycles_from_grf(self):
         """find steps via grf coordinates"""
         if self.grf is not None and self.cop is not None:
             # TODO
             pass
 
-    def _find_steps_from_markers(self):
+    def _find_cycles_from_markers(self):
         """find steps via markers coordinates"""
         if self.coordinates is not None:
 
@@ -554,74 +611,128 @@ class GaitTest:
             vlc -= vlc.min(axis=0)
             vrc -= vrc.min(axis=0)
 
-            # get the mean values between toe and metatarsal heads
+            # create a function to extract the contact phases on a given
+            # marker
+            def get_contact_phases(series: pd.Series):
+                arr = series.values.astype(float).flatten()
+                time = series.index.to_numpy()
+                fsamp = float(1 / np.mean(np.diff(time)))
+                frq, pwr = labsp.psd(arr, fsamp)
+                ffrq = frq[np.argmax(pwr)]
+                cycle_time = 1 / ffrq
+                dsamples = int(cycle_time * fsamp * 0.1)
+                condition = arr < self.height_threshold
+                batches = labsp.continuous_batches(condition)
+                return [i for i in batches if len(i) > dsamples]
+
+            # get the left foot-strikes
             flc = vlc[[i for i in ["Heel", "Mid"] if i in vlc.columns.tolist()]]
             flc = flc.min(axis=1)
+            fsl = [i[0] for i in get_contact_phases(flc) if i[0] > 0]
+            fsl = pd.DataFrame(fsl, columns=["Value"])
+            fsl.insert(0, "Side", np.tile("LEFT", fsl.shape[0]))
+            fsl.insert(0, "Source", np.tile("FS", fsl.shape[0]))
+
+            # get the right foot-strikes
             frc = vrc[[i for i in ["Heel", "Mid"] if i in vrc.columns.tolist()]]
             frc = frc.min(axis=1)
+            fsr = [i[0] for i in get_contact_phases(frc) if i[0] > 0]
+            fsr = pd.DataFrame(fsr, columns=["Value"])
+            fsr.insert(0, "Side", np.tile("RIGHT", fsr.shape[0]))
+            fsr.insert(0, "Source", np.tile("FS", fsr.shape[0]))
 
-            # get the mean values (they are used for mid-stance detection)
-            mlc = vlc.mean(axis=1)
-            mrc = vrc.mean(axis=1)
+            # get the left toe-offs
+            tol = [i[-1] for i in get_contact_phases(vlc["Toe"])]
+            tol = pd.DataFrame(tol, columns=["Value"])
+            tol.insert(0, "Side", np.tile("LEFT", tol.shape[0]))
+            tol.insert(0, "Source", np.tile("TO", tol.shape[0]))
 
-            # get the toe
-            tlc = vlc[["Toe"]]
-            trc = vrc[["Toe"]]
+            # get the right toe-offs
+            tor = [i[-1] for i in get_contact_phases(vrc["Toe"])]
+            tor = pd.DataFrame(tor, columns=["Value"])
+            tor.insert(0, "Side", np.tile("RIGHT", tor.shape[0]))
+            tor.insert(0, "Source", np.tile("TO", tor.shape[0]))
 
-            # get the strides
-            strides = []
-            for side, fd, md, td in zip(
-                ["LEFT", "RIGHT"], [flc, frc], [mlc, mrc], [tlc, trc]
-            ):
-                favg = fd.values.astype(float).flatten()
-                mavg = md.values.astype(float).flatten()
-                tavg = td.values.astype(float).flatten()
-                time = fd.index.to_numpy()
-                fsamp = float(1 / np.mean(np.diff(time)))
-                frq, pwr = labsp.psd(favg, fsamp)
-                ffrq = frq[np.argmax(pwr)]
-                step_time = 1 / ffrq
-                dsamples = int(step_time * fsamp * 0.1)
-                condition = tavg < self.height_threshold
-                to_batches = labsp.continuous_batches(condition)
-                toi = [i[-1] for i in to_batches if len(i) > dsamples]
-                for to0, to1 in zip(toi[:-1], toi[1:]):
-                    condition = favg[to0:] < self.height_threshold
-                    fs_batches = labsp.continuous_batches(condition)
-                    if len(fs_batches) > 0:
-                        fs = fs_batches[0][0] + to0
-                        if fs > to1:
-                            continue
-                        try:
-                            ms = int(np.argmin(mavg[fs:to1])) + fs
-                        except Exception:
-                            continue
-                        if ms > to1:
-                            continue
-                        stride = Stride(
-                            foot_strike_s=float(time[fs]),
-                            mid_stance_s=float(time[ms]),
-                            toe_off_s=float(time[to0]),
-                            ending_s=float(time[to1]),
-                            side=str(side).upper(),  # type: ignore
-                        )
-                        strides += [stride]
+            # aggregate the detected indices and sort them
+            events = pd.concat([fsl, fsr, tor, tol], ignore_index=True)
+            events.sort_values("Value", inplace=True)
+            events.reset_index(inplace=True, drop=True)
 
-            # extrapolate the steps from each stride
-            self._steps = []
-            for stride0, stride1 in zip(strides[:-1], strides[1:]):
-                if stride1.foot_strike_s < stride0.ending_s:
-                    step_class = WalkingStep
-                else:
-                    step_class = RunningStep
-                step = step_class(
-                    foot_strike_s=stride0.foot_strike_s,
-                    mid_stance_s=stride0.mid_stance_s,
-                    toe_off_s=stride0.toe_off_s,
-                    ending_s=stride1.toe_off_s,
-                    side=stride0.side,
-                )
-                self._steps += [step]
+            # get the mean values between all markers of the same foot
+            # (they are used for mid-stance detection in case of a running step)
+            mlc = vlc.mean(axis=1).values.astype(float).flatten()
+            mrc = vrc.mean(axis=1).values.astype(float).flatten()
+
+            # extrapolate the appropriate gait cycles
+            self._cycles = []
+            idx0 = 0
+            time = vcoords.index.to_numpy()
+            while idx0 < events.shape[0]:
+                if idx0 + 3 > events.shape[0]:
+                    break
+
+                # try to extract a running step
+                indices = np.arange(3) + idx0
+                sides = events.Side.values[indices]
+                sources = events.Source.values[indices]
+                samples = events.Value.values[indices]
+                times = time[samples]
+                if (
+                    sources[0] == "TO"
+                    and sources[1] == "FS"
+                    and sources[2] == "TO"
+                    and sides[0] != sides[1]
+                    and sides[0] == sides[2]
+                ):
+                    if sides[1] == "RIGHT":
+                        msi = np.argmin(mrc[samples[1] : samples[2]])
+                    else:
+                        msi = np.argmin(mlc[samples[1] : samples[2]])
+                    mst = float(time[samples[1] + msi])
+                    cycle = RunningStep(
+                        toeoff_s=times[0],
+                        footstrike_s=times[1],
+                        midstance_s=mst,
+                        ending_s=times[2],
+                        side=sides[1],
+                    )
+                    self._cycles += [cycle]
+                    idx0 += 2
+                    continue
+
+                # try to extract a walking stride
+                if idx0 + 5 > events.shape[0]:
+                    break
+                indices = np.arange(5) + idx0
+                sides = events.Side.values[indices]
+                sources = events.Source.values[indices]
+                samples = events.Value.values[indices]
+                times = time[samples]
+                if (
+                    sources[0] == "TO"  # ipsilateral
+                    and sources[1] == "FS"  # ipsilateral
+                    and sources[2] == "TO"  # contralateral
+                    and sources[3] == "FS"  # contralateral
+                    and sources[4] == "TO"  # ipsilateral
+                    and sides[0] == sides[1]
+                    and sides[0] != sides[2]
+                    and sides[0] != sides[3]
+                    and sides[0] == sides[4]
+                ):
+                    cycle = WalkingStride(
+                        ipsilateral_toeoff_s=times[0],
+                        ipsilateral_footstrike_s=times[1],
+                        contralateral_footstrike_s=times[2],
+                        contralateral_toeoff_s=times[3],
+                        ending_s=times[4],
+                        side=sides[0],
+                    )
+                    self._cycles += [cycle]
+                    idx0 += 2
+                    continue
+
+                # if no events have been found increase the counter
+                idx0 += 1
 
     # * constructors
 
@@ -743,10 +854,10 @@ class GaitTest:
         self._vertical_axis = vertical_axis
 
         # find steps and strides
-        self._steps: list[RunningStep | WalkingStep] = []
-        self._find_steps_from_markers()
-        if len(self._steps) == 0:
-            self._find_steps_from_grf()
+        self._cycles: list[RunningStep | WalkingStride] = []
+        self._find_cycles_from_markers()
+        if len(self._cycles) == 0:
+            self._find_cycles_from_grf()
 
     @classmethod
     def from_tdf_file(

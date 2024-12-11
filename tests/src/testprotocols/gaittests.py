@@ -19,7 +19,7 @@ __all__ = ["test_gaits"]
 def test_run():
     """test the run test"""
     print("\nTEST RUN")
-    file = join(dirname(__file__), "gaitanalysis_data", "run_test.tdf")
+    file = join(dirname(__file__), "gaitanalysis_data", "run_test_2.tdf")
     test = GaitTest.from_tdf_file(
         file=file,
         grf_label="fRes",
@@ -33,7 +33,8 @@ def test_run():
         force_thresh=30,
     )
     print("STEPS SUMMARY")
-    print(test.steps_summary())
+    df = test.summary()
+    print(df)
 
 
 def test_walk():
@@ -53,7 +54,8 @@ def test_walk():
         force_thresh=30,
     )
     print("STEPS SUMMARY")
-    print(test.steps_summary())
+    df = test.summary()
+    print(df)
 
 
 def test_gaits():
