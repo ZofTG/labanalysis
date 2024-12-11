@@ -123,17 +123,17 @@ class RunningStep(GaitCycle):
         return self._side
 
     @property
-    def _step_time_s(self):
+    def step_time_s(self):
         """return the stride time in seconds"""
         return self.ending_s - self.toeoff_s
 
     @property
-    def _contact_time_s(self):
+    def contact_time_s(self):
         """return the contact time in seconds"""
         return self.ending_s - self.footstrike_s
 
     @property
-    def _flight_time_s(self):
+    def flight_time_s(self):
         """return the flight time in seconds"""
         return self.footstrike_s - self.toeoff_s
 
@@ -150,7 +150,7 @@ class RunningStep(GaitCycle):
     @property
     def cadence_spm(self):
         """return the cadence of the stride in strides per minute"""
-        return 60 / self._step_time_s
+        return 60 / self.step_time_s
 
     # * constructor
 
@@ -623,6 +623,13 @@ class GaitTest:
                 dsamples = int(cycle_time * fsamp * 0.1)
                 condition = arr < self.height_threshold
                 batches = labsp.continuous_batches(condition)
+                i = 1
+                while i < len(batches):
+                    if batches[i][0] - batches[i - 1][-1] <= dsamples:
+                        batches[i - 1] = batches[i - 1] + batches[i]
+                        batches.pop(i)
+                    else:
+                        i += 1
                 return [i for i in batches if len(i) > dsamples]
 
             # get the left foot-strikes
@@ -682,7 +689,7 @@ class GaitTest:
                     and sources[1] == "FS"
                     and sources[2] == "TO"
                     and sides[0] != sides[1]
-                    and sides[0] == sides[2]
+                    and sides[0] != sides[2]
                 ):
                     if sides[1] == "RIGHT":
                         msi = np.argmin(mrc[samples[1] : samples[2]])

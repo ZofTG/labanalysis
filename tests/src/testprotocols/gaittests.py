@@ -60,8 +60,8 @@ def test_walk():
 
 def test_gaits():
     """test the jumptests module"""
-    test_walk()
     test_run()
+    test_walk()
 
 
 if __name__ == "__main__":
