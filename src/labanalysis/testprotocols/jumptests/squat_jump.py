@@ -446,7 +446,7 @@ class SquatJump(StateFrame):
 
         # process the data if required
         if process_data:
-            self.process_data(
+            self.process(
                 ignore_index=ignore_index,
                 inplace=True,
                 markers_fcut=markers_fcut,

@@ -85,7 +85,7 @@ to_reference_frame
 from types import FunctionType, MethodType
 from typing import Any, Literal
 from itertools import product
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from scipy import signal  # type: ignore
 from scipy.interpolate import CubicSpline  # type: ignore
 from scipy.spatial.transform import Rotation
@@ -1063,7 +1063,7 @@ def residual_analysis(
     if fmax is None:
         pwr, frq = psd(arr, 1)
         idx = int(np.where(np.cumsum(pwr) / np.sum(pwr) >= 0.99)[0][0])  # type: ignore
-        fmax = float(frq[idx])
+        fmax = max(float(frq[frq < 0.5][-1]), float(frq[idx]))
     assert 0 < fmax < 0.5, "fmax must lie in the (0, 0.5) range."
     assert minsamp >= 2, "'min_samples' must be >= 2."
 
@@ -1471,8 +1471,10 @@ def fillna(
     if not isinstance(arr, (DataFrame, np.ndarray)):
         raise TypeError("'arr' must be a numpy.ndarray or pandas.DataFrame.")
     miss = np.isnan(arr)
-    if isinstance(arr, DataFrame):
+    if isinstance(arr, (DataFrame, Series)):
         miss = miss.values.astype(bool)  # type: ignore
+    if miss.ndim == 1:
+        miss = np.atleast_2d(miss).T
 
     # otherwise return a copy of the actual vector
     if not np.any(miss):

@@ -6,13 +6,16 @@ analysis
 #! IMPORTS
 
 
+import pickle
 from os.path import exists
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 from warnings import warn
 
 import numpy as np
 import pandas as pd
 from labio import read_tdf
+
+from labanalysis import messages
 
 from .. import signalprocessing
 
@@ -28,7 +31,7 @@ class StateFrame:
 
     Parameters
     ----------
-    markers: pd.DataFrame | None
+    markers_raw: pd.DataFrame | None
         a DataFrame being composed by:
             * one or more triplets of columns like:
                 | <NAME> | <NAME> | <NAME> |
@@ -36,7 +39,7 @@ class StateFrame:
                 |    m   |   m    |    m   |
             * the time instant of each sample in seconds as index.
 
-    forceplatforms: pd.DataFrame | None
+    forceplatforms_raw: pd.DataFrame | None
         a DataFrame being composed by:
             * one or more packs of columns like:
                 | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> | <NAME> |
@@ -45,12 +48,18 @@ class StateFrame:
                 |    m   |   m    |    m   |    N   |   N    |    N   |    Nm  |   Nm   |   Nm   |
             * the time instant of each sample in seconds as index.
 
-    emgs: pd.DataFrame | None
+    emgs_raw: pd.DataFrame | None
         a DataFrame being composed by:
             * one or more packs of columns like:
                 | <NAME> |
                 |    V   |
             * the time instant of each sample in seconds as index.
+
+    vertical_axis: Literal['X', 'Y', 'Z'] = "Y"
+        the vertical axis coordinate
+
+    antpos_axis: Literal['X', 'Y', 'Z'] = "Z"
+        the anterior-posterior axis coordinate
 
     Attributes
     ----------
@@ -104,8 +113,20 @@ class StateFrame:
     _emg_processing_options: dict[str, Any] | None
     _forceplatform_processing_options: dict[str, Any] | None
     _marker_processing_options: dict[str, Any] | None
+    _vertical_axis: Literal["X", "Y", "Z"]
+    _antpos_axis: Literal["X", "Y", "Z"]
 
     # *attributes
+
+    @property
+    def vertical_axis(self):
+        """return the axis denoting the verticality"""
+        return self._vertical_axis
+
+    @property
+    def antpos_axis(self):
+        """return the axis denoting the anterior-posterior axis"""
+        return self._antpos_axis
 
     @property
     def emg_processing_options(self):
@@ -151,7 +172,7 @@ class StateFrame:
 
     # *methods
 
-    def process_data(
+    def process(
         self,
         ignore_index: bool = True,
         inplace: bool = True,
@@ -707,7 +728,8 @@ class StateFrame:
 
         # check if the columns layout is appropriate
         if obj.shape[0] > 0:  # type: ignore
-            self._validate_triplet(obj.columns.to_list(), "m")  # type: ignore
+            for mrk in obj.columns.get_level_values(0).unique():  # type: ignore
+                self._validate_triplet(obj[[mrk]].columns.to_list(), "m")  # type: ignore
 
     def _validate_forceplatforms(self, obj: object):
         """
@@ -733,10 +755,12 @@ class StateFrame:
         self._validate_frame(obj)
 
         # check if the columns layout is appropriate
-        if obj.shape[0] > 0:  # type: ignore
+        obj = pd.DataFrame(obj)  # type: ignore
+        if obj.shape[0] > 0:
+            if not isinstance(obj.columns, pd.MultiIndex):
+                raise ValueError("obj must be a DataFrame with MultiIndex columns")
             arr = obj.columns.to_list()  # type: ignore
-            lbls = np.unique([i[0] for i in arr])
-            for lbl in lbls:
+            for lbl in obj.columns.get_level_values(0).unique():
                 for dom, unt in zip(["ORIGIN", "FORCE", "TORQUE"], ["m", "N", "Nm"]):
                     arr = obj[lbl][[dom]].columns.tolist()  # type: ignore
                     self._validate_triplet(arr, unt)
@@ -809,6 +833,34 @@ class StateFrame:
         # return the tuple
         return (muscle, side)
 
+    def save(self, file_path: str):
+        """
+        save the test to the input file
+
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test name. If this is not the case, the appropriate extension
+            is appended.
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + self.__class__.__name__.lower()
+        if not file_path.endswith(extension):
+            file_path += extension
+        overwrite = False
+        while exists(file_path) and not overwrite:
+            overwrite = messages.askyesnocancel(
+                title="File already exists",
+                message="the provided file_path already exist. Overwrite?",
+            )
+            if not overwrite:
+                file_path = file_path[: len(extension)] + "_" + extension
+        if not exists(file_path) or overwrite:
+            with open(file_path, "wb") as buf:
+                pickle.dump(self, buf)
+
     # *constructors
 
     def __init__(
@@ -816,24 +868,10 @@ class StateFrame:
         markers_raw: pd.DataFrame | None = None,
         forceplatforms_raw: pd.DataFrame | None = None,
         emgs_raw: pd.DataFrame | None = None,
+        vertical_axis: Literal["X", "Y", "Z"] = "Y",
+        antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
-        """
-        generate a new StateFrame object
 
-        Parameters
-        ----------
-        markers_raw: pd.DataFrame | None = None
-            a dataframe containing raw markers data. If None, an empty dataframe
-            is used
-
-        forceplatforms_raw: pd.DataFrame | None = None
-            a raw dataframe containing raw forceplatforms data.
-            If None, an empty dataframe is used
-
-        emgs_raw: pd.DataFrame | None = None
-            a raw dataframe containing raw emg data.
-            If None, an empty dataframe is used
-        """
         # check and initialize markers data
         if markers_raw is None:
             markers_raw = pd.DataFrame()
@@ -853,10 +891,27 @@ class StateFrame:
         self._emgs = emgs_raw
 
         # separate the EMG data by side (where possible)
-        if len(self._emgs.columns[0]) < 3:
+        if self.emgs.shape[0] > 0 and len(self._emgs.columns[0]) < 3:
             raw_names = self._emgs.columns.get_level_values(0)
             muscles = [self._get_muscle_name(i) + ("V",) for i in raw_names]
             self._emgs.columns = pd.MultiIndex.from_tuples(muscles)
+
+        # check the vertical axis
+        axes = ["X", "Y", "Z"]
+        msg = f"'vertical_axis' must be any of {axes}"
+        if not isinstance(vertical_axis, str):
+            raise ValueError(msg)
+        if vertical_axis not in axes:
+            raise ValueError(msg)
+        self._vertical_axis = vertical_axis
+
+        # check the anterior-posterior axis
+        msg = f"'antpos_axis' must be any of {axes}"
+        if not isinstance(antpos_axis, str):
+            raise ValueError(msg)
+        if antpos_axis not in axes:
+            raise ValueError(msg)
+        self._antpos_axis = antpos_axis
 
         # set options to None
         self._marker_processing_options = None
@@ -865,7 +920,12 @@ class StateFrame:
         self._processed = False
 
     @classmethod
-    def from_tdf_file(cls, file: str):
+    def from_tdf_file(
+        cls,
+        file: str,
+        vertical_axis: Literal["X", "Y", "Z"] = "Y",
+        antpos_axis: Literal["X", "Y", "Z"] = "Z",
+    ):
         """
         generate a StateFrame from a .tdf file
 
@@ -874,6 +934,12 @@ class StateFrame:
         file : str
             a valid .tdf file containing (tracked) markers, force platforms and
             (optionally) EMG data
+
+        vertical_axis: Literal['X', 'Y', 'Z'] = "Y"
+            the vertical axis coordinate
+
+        antpos_axis: Literal['X', 'Y', 'Z'] = "Z"
+            the anterior-posterior axis coordinate
 
         Returns
         -------
@@ -917,4 +983,38 @@ class StateFrame:
             warn(msg, category=UserWarning)
 
         # generate a new object
-        return cls(markers_raw, forceplatforms_raw, emgs_raw)
+        return cls(
+            markers_raw=markers_raw,
+            forceplatforms_raw=forceplatforms_raw,
+            emgs_raw=emgs_raw,
+            vertical_axis=vertical_axis,
+            antpos_axis=antpos_axis,
+        )
+
+    @classmethod
+    def load(cls, file_path: str):
+        """
+        load the test data from an input file
+
+        Parameters
+        ----------
+        file_path: str
+            the path where to save the file. The file extension should mimic
+            the test name. If this is not the case, the appropriate extension
+            is appended.
+
+        Returns
+        -------
+        obj: Self
+            the test object
+        """
+        if not isinstance(file_path, str):
+            raise ValueError("'file_path' must be a str instance.")
+        extension = "." + cls.__name__.lower()
+        if not file_path.endswith(extension):
+            raise ValueError(f"'file_path' must have {extension}.")
+        try:
+            with open(file_path, "rb") as buf:
+                return pickle.load(buf)
+        except Exception:
+            raise RuntimeError(f"an error occurred importing {file_path}.")

@@ -374,7 +374,7 @@ class SideJump(CounterMovementJump):
         if not isinstance(process_data, bool):
             raise ValueError("'process_data' must be a boolean")
         if process_data:
-            obj.process_data(
+            obj.process(
                 inplace=True,
                 ignore_index=ignore_index,
                 markers_fcut=markers_fcut,
