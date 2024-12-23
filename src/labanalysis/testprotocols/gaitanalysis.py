@@ -38,8 +38,8 @@ __all__ = [
 def _filter_grf(grf: np.ndarray, time: np.ndarray):
     """filter the ground reaction force signal"""
     fsamp = float(1 / np.mean(np.diff(time)))
-    grff = labsp.fillna(np.atleast_2d(grf).T, None, None)
-    grff = np.array([grff]).astype(float).flatten()
+    grff = labsp.fillna(np.atleast_2d(grf).T.astype(float), None, None)
+    grff = grff.values.astype(float).flatten()
     grff = labsp.butterworth_filt(
         arr=grff,
         fcut=[10, 100],
@@ -54,7 +54,8 @@ def _filter_grf(grf: np.ndarray, time: np.ndarray):
 def _filter_vcoord(coord: np.ndarray, time: np.ndarray):
     """filter vertical coordinates from kinematic data"""
     fsamp = float(1 / np.mean(np.diff(time)))
-    fcoord = labsp.fillna(np.atleast_2d(coord).T, None, None)
+    fcoord = labsp.fillna(np.atleast_2d(coord).T.astype(float), None, None)
+    fcoord = fcoord.values.astype(float).flatten()
     fcoord = labsp.butterworth_filt(
         arr=np.array([fcoord - np.min(fcoord)]).astype(float).flatten(),
         fcut=6,
@@ -236,7 +237,8 @@ class RunningStep(GaitCycle):
         # if grf exists
         if self.forceplatforms.shape[1] > 0:
             grf = self.forceplatforms.fRes.FORCE[self.vertical_axis]
-            grf = labsp.fillna(grf).values.astype(float).flatten()  # type: ignore
+            grf = labsp.fillna(grf.astype(float))
+            grf = grf.values.astype(float).flatten()  # type: ignore
             time = self.forceplatforms.index.to_numpy()
             grff = _filter_grf(grf, time)
             mask = grff >= self.grf_threshold
