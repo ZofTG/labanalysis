@@ -1,4 +1,4 @@
-"""rslib.regression testing module"""
+"""signal processing testing module"""
 
 #! IMPORTS
 
@@ -32,6 +32,15 @@ def test_signalprocessing():
     assert filled_cs_ok, "fillna by cubic spline not working"
     filled_lr_ok = np.isnan(fillna(y, n_regressors=4)).sum().sum() == 0
     assert filled_lr_ok, "fillna by linear regression not working"
+    z = np.random.randn(100, 1).flatten()
+    k = np.copy(z)
+    k[np.random.permutation(np.arange(100))[:20]] = np.nan
+    try:
+        filled = fillna(k, value=value).values.flatten()
+    except Exception as exc:
+        raise ValueError from exc
+    filled_cs_ok = np.isnan(fillna(z)).sum().sum() == 0
+    assert filled_cs_ok, "fillna by cubic spline not working"
 
 
 if __name__ == "__main__":

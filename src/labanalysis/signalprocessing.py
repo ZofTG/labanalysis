@@ -1438,7 +1438,7 @@ def gram_schmidt(
 
 
 def fillna(
-    arr: np.ndarray | DataFrame,
+    arr: np.ndarray | DataFrame | Series,
     value: float | int | None = None,
     n_regressors: int | None = None,
 ):
@@ -1447,7 +1447,7 @@ def fillna(
 
     Parameters
     ----------
-    arr : np.ndarray[Any, np.dtype[np.float64]] | pandas.DataFrame
+    arr : np.ndarray | DataFrame | Series,
         array with nans to be filled
 
     value : float or None
@@ -1468,41 +1468,36 @@ def fillna(
         the vector without missing data.
     """
     # check if missing values exist
-    if not isinstance(arr, (DataFrame, np.ndarray)):
-        raise TypeError("'arr' must be a numpy.ndarray or pandas.DataFrame.")
-    miss = np.isnan(arr)
-    if isinstance(arr, (DataFrame, Series)):
-        miss = miss.values.astype(bool)  # type: ignore
-    if miss.ndim == 1:
-        miss = np.atleast_2d(miss).T
+    if not isinstance(arr, (DataFrame, np.ndarray, Series)):
+        raise TypeError(
+            "'arr' must be a numpy.ndarray a pandas.DataFrame or a pandas.Series."
+        )
+    if isinstance(arr, np.ndarray):
+        obj = DataFrame(arr, copy=True)
+    elif isinstance(arr, Series):
+        obj = DataFrame(arr, copy=True).T
+    else:
+        obj = arr.copy()
+    miss = np.isnan(obj.values)
 
     # otherwise return a copy of the actual vector
-    if not np.any(miss):
-        return arr.copy() if isinstance(arr, DataFrame) else np.copy(arr)
+    if not miss.any():
+        return obj
 
     # fill with the given value
     if value is not None:
-        out = (arr.values if isinstance(arr, DataFrame) else arr).astype(float)
-        out[miss] = value
-        if isinstance(arr, np.ndarray):
-            return out
-        outf = arr.copy()
-        outf.iloc[:, :] = out
-        return outf
+        obj.iloc[miss] = value
+        return obj
 
     # fill the missing data of each set via cubic spline
     idx = np.where(~miss.any(axis=1))[0]
-    if isinstance(arr, DataFrame):
-        x_new = arr.index.to_numpy()
-        y_old = arr.iloc[idx].values.astype(float)
-    else:
-        x_new = np.arange(arr.shape[0])
-        y_old = arr[idx]
+    x_new = obj.index.to_numpy()
+    y_old = obj.iloc[idx].values.astype(float)
     x_old = x_new[idx]
     splined = CubicSpline(x_old, y_old)(x_new).astype(float)
+    obj.iloc[:, :] = splined
 
     # check if linear regression models have to be used
-    out = np.copy(splined)
     if n_regressors is not None:
         # get the correlation matrix
         cmat = np.corrcoef(splined.T)
@@ -1516,12 +1511,10 @@ def fillna(
                 cols = cols[np.argsort(cmat[i][cols])[::-1][:n_regressors]]
                 lrm = PolynomialRegression(degree=1).fit(xmat[:, cols], xmat[:, i])
                 vec = np.atleast_2d(lrm.predict(splined[rows][:, cols])).T
-                out[rows, i] = vec
+                obj.iloc[rows, i] = vec
 
     # return the filled array
-    if isinstance(arr, DataFrame):
-        out = DataFrame(splined, index=arr.index, columns=arr.columns)
-    return out
+    return obj
 
 
 def tkeo(
