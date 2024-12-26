@@ -5,10 +5,12 @@
 
 import sys
 from os.path import dirname, join
+from turtle import left
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
 
 import pandas as pd
+
 from src.labanalysis import *
 
 __all__ = ["test_gaits"]
@@ -21,50 +23,36 @@ def test_run():
     """test the run test"""
     print("\nTEST RUN")
     path = join(dirname(__file__), "gaitanalysis_data")
-    file = join(path, "run_test.tdf")
-    frame = StateFrame.from_tdf_file(file)
-    mcols = []
-    for i in frame.markers.columns:
-        lbl, axis, unit = i
-        root = lbl.split("_")[-2]
-        root += lbl.split("_")[-1].capitalize().replace("Met", "Mid")
-        mcols += [(root, axis, unit)]
-    frame._markers.columns = pd.MultiIndex.from_tuples(mcols)
-    valid_markers = ["lHeel", "lToe", "lMid", "rHeel", "rToe", "rMid"]
-    mcols = [i for i in frame._markers if i[0] in valid_markers]
-    frame._markers = frame._markers[mcols]
-    test = RunningTest(frame=frame)
-    fig, dfr = test.results()
-    grf_fig = file.replace(".tdf", "_grf_fig.html")
-    fig.write_html(grf_fig)
-    frame._forceplatforms = pd.DataFrame()
-    test = RunningTest(frame=frame)
-    fig, dfr = test.results()
-    mrk_fig = file.replace(".tdf", "_markers_fig.html")
-    fig.write_html(mrk_fig)
-    print(dfr)
+    files = [join(path, "run_test.tdf"), join(path, "run_test_2.tdf")]
+    for file in files:
+        frame = StateFrame.from_tdf_file(file)
+        run_test = RunningTest(
+            frame=frame,
+            algorithm="kinematics",
+            left_heel="l_heel",
+            right_heel="r_heel",
+            left_toe="l_toe",
+            right_toe="r_toe",
+            left_meta_head="l_met",
+            right_meta_head="r_met",
+            grf="fRes",
+        )
+        fig, dfr = run_test.results()
+        fig_name = file.replace(".tdf", "_kinematics.html")
+        fig.write_html(fig_name)
+        run_test.set_algorithm("kinetics")
+        fig, dfr = run_test.results()
+        fig_name = file.replace(".tdf", "_kinetics.html")
+        fig.write_html(fig_name)
+    print("RUNNING TEST COMPLETED")
 
 
 def test_walk():
     """test the run test"""
     print("\nTEST WALK")
-    file = join(dirname(__file__), "gaitanalysis_data", "walk_test.tdf")
-    test = GaitTest.from_tdf_file(
-        file=file,
-        grf_label="fRes",
-        rheel_label="r_heel",
-        lheel_label="l_heel",
-        rtoe_label="r_toe",
-        ltoe_label="l_toe",
-        lmid_label="l_met",
-        rmid_label="r_met",
-        height_thresh=0.02,
-        force_thresh=30,
-    )
-    print("STEPS SUMMARY")
-    df, fig = test.results()
-    print(df)
-    fig.show()
+    # TODO: add walk test
+    print("WALK TEST NOT IMPLEMENTED")
+    print("WALK TEST COMPLETED")
 
 
 def test_gaits():

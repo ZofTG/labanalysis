@@ -1477,44 +1477,67 @@ def fillna(
     elif isinstance(arr, Series):
         obj = DataFrame(arr, copy=True).T
     else:
-        obj = arr.copy()
+        obj = arr.copy().astype(float)
     miss = np.isnan(obj.values)
 
     # otherwise return a copy of the actual vector
     if not miss.any():
-        return obj
+        return arr.copy()
 
     # fill with the given value
     if value is not None:
         obj.iloc[miss] = value
-        return obj
-
-    # fill the missing data of each set via cubic spline
-    idx = np.where(~miss.any(axis=1))[0]
-    x_new = obj.index.to_numpy()
-    y_old = obj.iloc[idx].values.astype(float)
-    x_old = x_new[idx]
-    splined = CubicSpline(x_old, y_old)(x_new).astype(float)
-    obj.iloc[:, :] = splined
+        if isinstance(arr, np.ndarray):
+            return obj.values.astype(float)
+        elif isinstance(arr, Series):
+            return Series(obj[obj.columns[0]])
+        else:
+            return obj
 
     # check if linear regression models have to be used
     if n_regressors is not None:
         # get the correlation matrix
-        cmat = np.corrcoef(splined.T)
+        cmat = obj.corr(numeric_only=True).values
 
-        # predict the missing values via linear regression
-        xmat = splined[idx]
-        for i in np.arange(splined.shape[1] - 1):
-            rows = np.where(miss[:, i])[0]
-            if len(rows) > 0:
-                cols = np.delete(np.arange(splined.shape[1]), i)
-                cols = cols[np.argsort(cmat[i][cols])[::-1][:n_regressors]]
-                lrm = PolynomialRegression(degree=1).fit(xmat[:, cols], xmat[:, i])
-                vec = np.atleast_2d(lrm.predict(splined[rows][:, cols])).T
-                obj.iloc[rows, i] = vec
+        # predict the missing values via linear regression over each column
+        cols = obj.columns.tolist()
+        for i, ycol in enumerate(obj.columns):
+
+            # get the best regressors
+            corrs = abs(cmat[i])
+            cor_idx = np.argsort(corrs)[-n_regressors - 1 : -1]
+            xcols = [cols[i] for i in cor_idx]
+
+            # get the indices of the samples that can be used for training
+            # the regression model and those samples that can be predicted
+            # with that model
+            i_old = obj.loc[obj[[ycol] + xcols].notna().all(axis=1)].index
+            i_new = obj.loc[obj[ycol].isna() & obj[xcols].notna().all(axis=1)].index
+
+            # if there are enough valid samples get the predictions and replace
+            # the missing data
+            if len(i_old) > 2 and len(i_new) > 0:
+                xmat = obj.loc[i_old, xcols]
+                yarr = obj.loc[i_old, [ycol]]
+                lrm = PolynomialRegression(degree=1).fit(xmat, yarr)
+                preds = lrm.predict(obj.loc[i_new, xcols])
+                obj.loc[i_new, ycol] = preds.values.astype(float).flatten()
+
+    # fill the missing data of each set via cubic spline
+    for i, col in enumerate(obj.columns):
+        x_new = np.where(np.isnan(obj[col].values.astype(float)))[0]
+        x_old = np.where(~np.isnan(obj[col].values.astype(float)))[0]
+        if len(x_new) > 0 and len(x_old) > 0:
+            y_old = obj[col].values[x_old].astype(float)
+            obj.iloc[x_new, i] = CubicSpline(x_old, y_old)(x_new).astype(float)
 
     # return the filled array
-    return obj
+    if isinstance(arr, np.ndarray):
+        return obj.values.astype(float)
+    elif isinstance(arr, Series):
+        return Series(obj[obj.columns[0]])
+    else:
+        return obj
 
 
 def tkeo(

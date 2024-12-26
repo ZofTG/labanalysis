@@ -36,7 +36,7 @@ def test_signalprocessing():
     k = np.copy(z)
     k[np.random.permutation(np.arange(100))[:20]] = np.nan
     try:
-        filled = fillna(k, value=value).values.flatten()
+        filled = fillna(k, value=value)
     except Exception as exc:
         raise ValueError from exc
     filled_cs_ok = np.isnan(fillna(z)).sum().sum() == 0

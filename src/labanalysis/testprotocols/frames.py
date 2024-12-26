@@ -55,12 +55,6 @@ class StateFrame:
                 |    V   |
             * the time instant of each sample in seconds as index.
 
-    vertical_axis: Literal['X', 'Y', 'Z'] = "Y"
-        the vertical axis coordinate
-
-    antpos_axis: Literal['X', 'Y', 'Z'] = "Z"
-        the anterior-posterior axis coordinate
-
     Attributes
     ----------
     markers
@@ -113,20 +107,8 @@ class StateFrame:
     _emg_processing_options: dict[str, Any] | None
     _forceplatform_processing_options: dict[str, Any] | None
     _marker_processing_options: dict[str, Any] | None
-    _vertical_axis: Literal["X", "Y", "Z"]
-    _antpos_axis: Literal["X", "Y", "Z"]
 
     # *attributes
-
-    @property
-    def vertical_axis(self):
-        """return the axis denoting the verticality"""
-        return self._vertical_axis
-
-    @property
-    def antpos_axis(self):
-        """return the axis denoting the anterior-posterior axis"""
-        return self._antpos_axis
 
     @property
     def emg_processing_options(self):
@@ -868,8 +850,6 @@ class StateFrame:
         markers_raw: pd.DataFrame | None = None,
         forceplatforms_raw: pd.DataFrame | None = None,
         emgs_raw: pd.DataFrame | None = None,
-        vertical_axis: Literal["X", "Y", "Z"] = "Y",
-        antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
 
         # check and initialize markers data
@@ -896,23 +876,6 @@ class StateFrame:
             muscles = [self._get_muscle_name(i) + ("V",) for i in raw_names]
             self._emgs.columns = pd.MultiIndex.from_tuples(muscles)
 
-        # check the vertical axis
-        axes = ["X", "Y", "Z"]
-        msg = f"'vertical_axis' must be any of {axes}"
-        if not isinstance(vertical_axis, str):
-            raise ValueError(msg)
-        if vertical_axis not in axes:
-            raise ValueError(msg)
-        self._vertical_axis = vertical_axis
-
-        # check the anterior-posterior axis
-        msg = f"'antpos_axis' must be any of {axes}"
-        if not isinstance(antpos_axis, str):
-            raise ValueError(msg)
-        if antpos_axis not in axes:
-            raise ValueError(msg)
-        self._antpos_axis = antpos_axis
-
         # set options to None
         self._marker_processing_options = None
         self._forceplatform_processing_options = None
@@ -920,12 +883,7 @@ class StateFrame:
         self._processed = False
 
     @classmethod
-    def from_tdf_file(
-        cls,
-        file: str,
-        vertical_axis: Literal["X", "Y", "Z"] = "Y",
-        antpos_axis: Literal["X", "Y", "Z"] = "Z",
-    ):
+    def from_tdf_file(cls, file: str):
         """
         generate a StateFrame from a .tdf file
 
@@ -934,12 +892,6 @@ class StateFrame:
         file : str
             a valid .tdf file containing (tracked) markers, force platforms and
             (optionally) EMG data
-
-        vertical_axis: Literal['X', 'Y', 'Z'] = "Y"
-            the vertical axis coordinate
-
-        antpos_axis: Literal['X', 'Y', 'Z'] = "Z"
-            the anterior-posterior axis coordinate
 
         Returns
         -------
@@ -987,8 +939,6 @@ class StateFrame:
             markers_raw=markers_raw,
             forceplatforms_raw=forceplatforms_raw,
             emgs_raw=emgs_raw,
-            vertical_axis=vertical_axis,
-            antpos_axis=antpos_axis,
         )
 
     @classmethod
