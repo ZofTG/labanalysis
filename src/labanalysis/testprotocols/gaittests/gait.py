@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from ... import signalprocessing as labsp
+from ...plotting.plotly import bars_with_normative_bands
 from ..base import LabTest
 from ..frames import StateFrame
 
@@ -120,23 +121,14 @@ class GaitObject(StateFrame):
         return self._algorithm
 
     @property
-    def _init_s(self):
+    def init_s(self):
         """return the first toeoff time in seconds"""
         return float(self.to_dataframe().index.to_list()[0])
 
     @property
-    def _end_s(self):
+    def end_s(self):
         """return the toeoff time corresponding to the end of the cycle in seconds"""
         return float(self.to_dataframe().index.to_list()[-1])
-
-    @property
-    def time_events(self):
-        """return all the time events defining the cycle"""
-        evts: dict[str, float | str] = {}
-        for lbl in dir(self):
-            if lbl.endswith("_s"):
-                evts[lbl[1:]] = getattr(self, lbl)
-        return evts
 
     @property
     def grf(self):
@@ -464,6 +456,8 @@ class GaitCycle(GaitObject):
     # * class variables
 
     _side: Literal["LEFT"] | Literal["RIGHT"]
+    _footstrike_s: float
+    _midstance_s: float
 
     # * attributes
 
@@ -473,46 +467,41 @@ class GaitCycle(GaitObject):
         return self._side
 
     @property
+    def cycle_time_s(self):
+        """return the cycle time in seconds"""
+        return self.end_s - self.init_s
+
+    @property
+    def footstrike_s(self):
+        """return the foot-strike time in seconds"""
+        return self._footstrike_s
+
+    @property
+    def midstance_s(self):
+        """return the mid-stance time in seconds"""
+        return self._midstance_s
+
+    @property
     def time_events(self):
         """return all the time events defining the cycle"""
-        evts = super().time_events
-        evts["side"] = self.side
-        return evts
-
-    @property
-    def _cycle_time_s(self):
-        """return the cycle time in seconds"""
-        return self._end_s - self._init_s
-
-    @property
-    def _footstrike_s(self):
-        """return the foot-strike time in seconds"""
-        if self.algorithm == "kinetics":
-            return self._footstrike_kinetics()
-        elif self.algorithm == "kinematics":
-            return self._footstrike_kinematics()
-        raise ValueError("no footstrike has been found.")
-
-    @property
-    def _midstance_s(self):
-        """return the mid-stance time in seconds"""
-        if self.algorithm == "kinetics":
-            return self._midstance_kinetics()
-        elif self.algorithm == "kinematics":
-            return self._midstance_kinematics()
-        raise ValueError("no midstance has been found.")
-
-    @property
-    def relative_time_events(self):
-        """return all the time events defining the cycle"""
-        evts: dict[str, float | str] = {}
-        for key, val in super().time_events.items():
-            if key not in ["side"]:
-                new = val
-                if key in ["_footstrike_s", "_midstance_s", "_init_s", "_end_s"]:
-                    new -= self._init_s  # type: ignore
-                evts[key[:-1] + "r"] = new / self._cycle_time_s * 100  # type: ignore
-        return evts
+        evts = []
+        for lbl in dir(self):
+            if lbl.endswith("_s") and not lbl.startswith("_"):
+                name = lbl.rsplit("_", 1)[0].strip().split(" ")[0].lower()
+                time = getattr(self, lbl)
+                perc = time
+                if lbl in ["footstrike_s", "midstance_s", "init_s", "end_s"]:
+                    perc -= self.init_s
+                perc = perc / self.cycle_time_s * 100
+                line_abs = {"Parameter": name, "Unit": "s", "Value": time}
+                evts += [pd.DataFrame(pd.Series(line_abs)).T]
+                line_rel = {"Parameter": name, "Unit": "%", "Value": perc}
+                evts += [pd.DataFrame(pd.Series(line_rel)).T]
+        out = pd.concat(evts, ignore_index=True)
+        out.loc[out.index, "Parameter"] = out.Parameter.map(
+            lambda x: x.replace("_time", "")
+        )
+        return out
 
     # * methods
 
@@ -531,6 +520,32 @@ class GaitCycle(GaitObject):
     def _midstance_kinematics(self) -> float:
         """return the mid-stance time in seconds using the kinematics algorithm"""
         raise NotImplementedError
+
+    def _update_events(self):
+        """update gait events"""
+        if self.algorithm == "kinetics":
+            try:
+                self._midstance_s = self._midstance_kinetics()
+            except Exception:
+                self._midstance_s = np.nan
+            try:
+                self._footstrike_s = self._footstrike_kinetics()
+            except Exception:
+                self._footstrike_s = np.nan
+        elif self.algorithm == "kinematics":
+            try:
+                self._midstance_s = self._midstance_kinematics()
+            except Exception:
+                self._midstance_s = np.nan
+            try:
+                self._footstrike_s = self._footstrike_kinematics()
+            except Exception:
+                self._footstrike_s = np.nan
+
+    def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
+        """set the gait cycle detection algorithm"""
+        super().set_algorithm(algorithm=algorithm)
+        self._update_events()
 
     # * constructor
 
@@ -572,6 +587,9 @@ class GaitCycle(GaitObject):
             raise ValueError("'side' must be 'LEFT' or 'RIGHT'")
         if side in ["LEFT", "RIGHT"]:
             self._side = side
+
+        # update the gait events
+        self._update_events()
 
 
 class GaitTest(GaitObject, LabTest):
@@ -654,15 +672,103 @@ class GaitTest(GaitObject, LabTest):
         self,
         normative_intervals: pd.DataFrame = pd.DataFrame(),
     ):
-        # TODO
-        raise NotImplementedError
+        """
+        return a table highlighting the test summary and a table reporting
+        the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        table: pd.DataFrame
+            return the summary table
+        """
+        # get the time events for each step
+        evts = []
+        for c, cycle in enumerate(self.cycles):
+            evt = cycle.time_events
+            nsamp = evt.shape[0]
+            evt.insert(0, "Side", np.tile(cycle.side, nsamp))
+            evt.insert(0, "Algorithm", np.tile(cycle.algorithm, nsamp))
+            evt.insert(0, "Event", np.tile(c, nsamp))
+            evts += [evt]
+
+        # concatenate the events and get the descriptive stats
+        long = pd.concat(evts, ignore_index=True).sort_index(axis=1)
+
+        # add the normative values
+        if normative_intervals.shape[0] > 0:
+            labels = ["Lower", "Upper", "Rank", "Color"]
+            for param, dfr in long.groupby("Parameter"):
+                vals = dfr.Value.values.astype(float).flatten()
+                for i, val in enumerate(vals):
+                    idx = dfr.index[i]
+                    bands = self.get_intervals(
+                        norms_table=normative_intervals,
+                        param=str(param),
+                        value=val,
+                    )
+                    for band in bands:
+                        for lbl, val in zip(labels, band):
+                            long.loc[idx, lbl] = val
+
+        return long
 
     def _make_summary_plot(
         self,
         normative_intervals: pd.DataFrame = pd.DataFrame(),
     ):
-        # TODO
-        raise NotImplementedError
+        """
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        figures: dict[str, FigureWidget]
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
+        """
+        return NotImplementedError
 
     def _make_results_table(self):
         """return a table with the resulting data"""
@@ -766,10 +872,10 @@ class GaitTest(GaitObject, LabTest):
             # plot the cycles
             for i, cycle in enumerate(self.cycles):
                 color = "purple" if cycle.side == "LEFT" else "green"
-                init = cycle._init_s
-                footstrike = cycle._footstrike_s
-                midstance = cycle._midstance_s
-                end = cycle._end_s
+                init = cycle.init_s
+                footstrike = cycle.footstrike_s
+                midstance = cycle.midstance_s
+                end = cycle.end_s
                 fig.add_trace(
                     row=row + 1,
                     col=1,

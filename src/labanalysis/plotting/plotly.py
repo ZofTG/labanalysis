@@ -422,10 +422,6 @@ def bars_with_normative_bands(
         arr = np.array(obj) if isinstance(obj, list) else obj
         if arr.ndim > 1:
             raise ValueError(msg)
-        try:
-            arr = arr.astype(float)
-        except Exception:
-            raise ValueError(msg)
         return arr
 
     def _is_part(dfr: pd.DataFrame, lbl: object):

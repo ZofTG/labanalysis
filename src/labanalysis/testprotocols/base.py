@@ -404,11 +404,76 @@ class LabTest(Protocol):
         normative_intervals: pd.DataFrame = pd.DataFrame(),
     ) -> dict[str, go.FigureWidget]: ...
 
+    def get_intervals(
+        self,
+        norms_table: pd.DataFrame,
+        param: str,
+        value: float | int,
+    ):
+        """
+        return the upper and lower band interval plus its rendering color
+        for the given parameter
+
+        Parameters
+        ----------
+        norms_table: pd.DataFrame
+            the dataframe containing all the normative data.
+            The dataframe must have the following columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        param: str
+            the parameter of interest
+
+        Return
+        ------
+        intervals: list[tuple[float, float, str, str]]
+            a list of tuples containing the upper and lower interval plus the
+            corresponding color for the given parameter. An empty list is
+            returned in case no intervals are found for the given parameter.
+
+        Raise
+        -----
+        Warning in case the given parameter is not found.
+        """
+        # check the inputs
+        self.check_intervals(norms_table)
+        if not isinstance(param, str):
+            raise ValueError("'param' must be a str object.")
+        if not isinstance(value, (float, int)):
+            raise ValueError("'value' must be a float or int.")
+
+        # get the values
+        out: list[tuple[float, float, str, str]] = []
+        cols = ["Parameter", "Rank", "Lower", "Upper", "Color"]
+        if norms_table.shape[0] > 0:
+            norms = norms_table.loc[norms_table.Parameter == str(param)]
+            for row in range(norms.shape[0]):
+                vals = norms[cols[1:]].iloc[row]
+                rnk, low, upp, clr = vals.values.astype(float).flatten()
+                if value >= low and value <= upp:
+                    out += [(float(low), float(upp), rnk, clr)]
+
+        return out
+
     def _make_results_table(self) -> pd.DataFrame: ...
 
     def _make_results_plot(self) -> go.FigureWidget: ...
 
-    def _check_norms(self, normative_intervals: object):
+    def check_intervals(self, normative_intervals: object):
         """check the normative intervals architecture"""
         columns = ["Parameter", "Rank", "Lower", "Upper", "Color"]
         msg = "normative_intervals must be a pandas.DataFrame containing the "
@@ -473,7 +538,7 @@ class LabTest(Protocol):
         tab: pandas DataFrame
             return a pandas dataframe with a summary of the test results.
         """
-        self._check_norms(normative_intervals)
+        self.check_intervals(normative_intervals)
         res = self._make_summary_table(normative_intervals)
         fig = self._make_summary_plot(normative_intervals)
         return fig, res

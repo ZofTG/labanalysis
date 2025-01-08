@@ -8,10 +8,12 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-
+import plotly.graph_objects as go
+import plotly.express.colors as colors
+from ...plotting.plotly import bars_with_normative_bands
 from ... import signalprocessing as labsp
 from ..frames import StateFrame
-from .gait import GRF_THRESHOLD_DEFAULT, HEIGHT_THRESHOLD_DEFAULT, GaitCycle, GaitTest
+from . import gait
 
 __all__ = ["RunningStep", "RunningTest"]
 
@@ -19,7 +21,7 @@ __all__ = ["RunningStep", "RunningTest"]
 #! CLASSESS
 
 
-class RunningStep(GaitCycle):
+class RunningStep(gait.GaitCycle):
     """
     basic running step class.
 
@@ -92,42 +94,42 @@ class RunningStep(GaitCycle):
     @property
     def flight_frame(self):
         """return a stateframe corresponding to the flight phase"""
-        return self.slice(self._init_s, self._footstrike_s)
+        return self.slice(self.init_s, self.footstrike_s)
 
     @property
     def contact_frame(self):
         """return a stateframe corresponding to the contact phase"""
-        return self.slice(self._footstrike_s, self._end_s)
+        return self.slice(self.footstrike_s, self.end_s)
 
     @property
     def loading_response_frame(self):
         """return a stateframe corresponding to the loading response phase"""
-        return self.slice(self._footstrike_s, self._midstance_s)
+        return self.slice(self.footstrike_s, self.midstance_s)
 
     @property
     def propulsion_frame(self):
         """return a stateframe corresponding to the propulsive phase"""
-        return self.slice(self._midstance_s, self._end_s)
+        return self.slice(self.midstance_s, self.end_s)
 
     @property
-    def _flight_time_s(self):
+    def flight_time_s(self):
         """return the flight time in seconds"""
-        return self._footstrike_s - self._end_s
+        return self.footstrike_s - self.init_s
 
     @property
-    def _loadingresponse_time_s(self):
+    def loadingresponse_time_s(self):
         """return the loading response time in seconds"""
-        return self._midstance_s - self._footstrike_s
+        return self.midstance_s - self.footstrike_s
 
     @property
-    def _propulsion_time_s(self):
+    def propulsion_time_s(self):
         """return the propulsion time in seconds"""
-        return self._end_s - self._midstance_s
+        return self.end_s - self.midstance_s
 
     @property
-    def _contact_time_s(self):
+    def contact_time_s(self):
         """return the contact time in seconds"""
-        return self._end_s - self._footstrike_s
+        return self.end_s - self.footstrike_s
 
     # * methods
 
@@ -228,8 +230,8 @@ class RunningStep(GaitCycle):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = gait.GRF_THRESHOLD_DEFAULT,
+        height_threshold: float | int = gait.HEIGHT_THRESHOLD_DEFAULT,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
@@ -251,7 +253,7 @@ class RunningStep(GaitCycle):
         )
 
 
-class RunningTest(GaitTest):
+class RunningTest(gait.GaitTest):
     """
     generate a RunningTest instance
 
@@ -493,6 +495,114 @@ class RunningTest(GaitTest):
                 args["grf"] = None
             self._cycles += [RunningStep(**args)]
 
+    def _make_summary_plot(
+        self,
+        normative_intervals: pd.DataFrame = pd.DataFrame(),
+    ):
+        """
+        return a dictionary of plotly FigureWidget objects highlighting the
+        test summary and a table reporting the summary data.
+
+        Parameters
+        ----------
+        normative_intervals: pd.DataFrame, optional
+            all the normative intervals. The dataframe must have the following
+            columns:
+
+                Parameter: str
+                    the name of the parameter
+
+                Rank: str
+                    the label defining the interpretation of the value
+
+                Lower: int | float
+                    the lower bound of the interval.
+
+                Upper: int | float
+                    the upper bound of the interval.
+
+                Color: str
+                    code that can be interpreted as a color.
+
+        Returns
+        -------
+        figures: dict[str, FigureWidget]
+            return a dictionary of plotly FigureWidget objects summarizing the
+            results of the test.
+        """
+
+        # get the data
+        data = self._make_summary_table()
+        data = data.groupby(
+            by=["Algorithm", "Parameter", "Unit", "Side"],
+            as_index=False,
+        )
+        data = data.mean()
+
+        # generate the step phases figure
+        figures: dict[str, go.FigureWidget] = {}
+        cmap = colors.qualitative.Plotly
+        figures["phases"] = go.FigureWidget()
+        sides = ["RIGHT", "LEFT"]
+        events = ["flight", "loadingresponse", "propulsion", "cycle"]
+        for i, param in enumerate(events):
+            arr = []
+            txt = []
+            for side in sides:
+                dfr = data.loc[(data.Side == side) & (data.Parameter == param)]
+                perc = dfr.loc[data.Unit == "%"].Value.values.astype(float)[0]
+                time = dfr.loc[data.Unit == "s"].Value.values.astype(float)[0]
+                arr += [0.001 if param == "cycle" else time]
+                txt += [f"{time:0.3f}<br>({perc:0.1f}%)"]
+            trace = go.Bar(
+                x=arr,
+                y=sides,
+                text=txt,
+                textposition="inside" if param != "cycle" else "outside",
+                name=param,
+                legendgroup=param + " time",
+                marker_color=cmap[i],
+                orientation="h",
+            )
+            figures["phases"].add_trace(trace)
+
+        # update the layout
+        figures["phases"].update_xaxes(title="Time (s)")
+        figures["phases"].update_layout(
+            barmode="stack",
+            template="plotly_white",
+            title="Running Phases",
+            legend_title_text="Phase",
+        )
+
+        # create the imbalance plots
+        for param in events:
+
+            # get the data and the normative bands
+            dfr = data.loc[(data.Parameter == param) & (data.Unit == "s")]
+            left = dfr.loc[dfr.Side == "LEFT"].Value.values.astype(float)[0]
+            right = dfr.loc[dfr.Side == "RIGHT"].Value.values.astype(float)[0]
+            val = 200 * (right - left) / (right + left)
+            if normative_intervals.shape[0] > 0:
+                idx = normative_intervals.Parameter == param
+                norms = normative_intervals[idx]
+            else:
+                norms = normative_intervals
+
+            # get a bar plot with optional normative bands
+            fig = bars_with_normative_bands(
+                yarr=[0],
+                xarr=[val],
+                orientation="h",
+                unit="%",
+                intervals=norms,  # type: ignore
+            )[0]
+            fig.update_yaxes(showticklabels=False, visible=False)
+            fig.update_layout(title=param, template="simple_white")
+            figures[param + " imbalance"] = go.FigureWidget(fig)
+
+        return figures
+
     # * constructor
 
     def __init__(
@@ -506,8 +616,8 @@ class RunningTest(GaitTest):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = gait.GRF_THRESHOLD_DEFAULT,
+        height_threshold: float | int = gait.HEIGHT_THRESHOLD_DEFAULT,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):

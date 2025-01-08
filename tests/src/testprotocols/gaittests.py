@@ -5,11 +5,8 @@
 
 import sys
 from os.path import dirname, join
-from turtle import left
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
-
-import pandas as pd
 
 from src.labanalysis import *
 
@@ -37,6 +34,7 @@ def test_run():
             right_meta_head="r_met",
             grf="fRes",
         )
+        fig, dfr = run_test.summary()
         fig, dfr = run_test.results()
         fig_name = file.replace(".tdf", "_kinematics.html")
         fig.write_html(fig_name)
