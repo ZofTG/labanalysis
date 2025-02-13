@@ -8,10 +8,16 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express.colors as colors
-from ...plotting.plotly import bars_with_normative_bands
+import plotly.graph_objects as go
+
+from ...constants import (
+    DEFAULT_MINIMUM_CONTACT_GRF_N,
+    DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+)
+
 from ... import signalprocessing as labsp
+from ...plotting.plotly import bars_with_normative_bands
 from ..frames import StateFrame
 from . import gait
 
@@ -144,39 +150,39 @@ class RunningStep(gait.GaitCycle):
         vgrf = labsp.fillna(vgrf).values.astype(float).flatten()  # type: ignore
         time = self.grf.index.to_numpy()
         grff = self._filter_kinetics(vgrf, time)
-        mask = grff >= self.grf_threshold
-        contacts = labsp.continuous_batches(mask)
+        grfn = grff / np.max(grff)
+        mask = np.where((grfn < self.height_threshold)[: np.argmax(grfn)])[0]
 
         # extract the first contact time
-        if len(contacts) == 0:
+        if len(mask) == 0:
             raise ValueError("no footstrike has been found.")
 
-        return float(time[contacts[0][0]])
+        return float(time[mask[-1]])
 
     def _footstrike_kinematics(self):
         """find the footstrike time using the kinematics algorithm"""
 
         # get the relevant vertical coordinates
         vcoords = {}
-        heel_lbl = f"{self.side.lower()}_heel"
-        heelv = getattr(self, heel_lbl)
-        heelv = heelv[heelv.columns.get_level_values(0)[0]][self.vertical_axis]
-        vcoords[heel_lbl] = heelv.values.astype(float).flatten()
-        meta_lbl = f"{self.side.lower()}_meta_head"
-        meta_dfr = getattr(self, meta_lbl)
-        if meta_dfr is not None:
-            meta_dfr = meta_dfr[meta_dfr.columns.get_level_values(0)[0]]
-            vcoords[meta_lbl] = meta_dfr[self.vertical_axis]
-            vcoords[meta_lbl] = vcoords[meta_lbl].values.astype(float).flatten()
+        contact_foot = self.side.lower()
+        for marker in ["heel", "meta_head"]:
+            lbl = f"{contact_foot}_{marker}"
+            dfr = getattr(self, lbl)
+            if dfr is not None:
+                dfr = dfr[dfr.columns.get_level_values(0)[0]]
+                vcoords[lbl] = dfr[self.vertical_axis]
+                vcoords[lbl] = vcoords[lbl].values.astype(float).flatten()
 
         # filter the signals and extract the first contact time
         time = self.markers.index.to_numpy()
         fs_time = []
         for val in vcoords.values():
-            mask = self._filter_kinematics(val, time) < self.height_threshold
-            contacts = labsp.continuous_batches(mask)
-            if len(contacts) > 0:
-                fs_time += [time[contacts[0][0]]]
+            val = self._filter_kinematics(val, time)
+            val = val / np.max(val)
+            fsi = np.where(val < self.height_threshold)[0]
+            if len(fsi) == 0 or fsi[0] == 0:
+                raise ValueError("not footstrike has been found.")
+            fs_time += [time[fsi[0]]]
 
         # get output time
         if len(fs_time) > 0:
@@ -230,8 +236,8 @@ class RunningStep(gait.GaitCycle):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = gait.GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = gait.HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = gait.DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = gait.DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
@@ -330,28 +336,31 @@ class RunningTest(gait.GaitTest):
             arr = self.markers[f"{side}_toe"][self.vertical_axis]
             arr = arr.values.astype(float).flatten()
 
-            # get the minimum reasonable contact time for each step
+            # filter and rescale
             ftoe = self._filter_kinematics(arr, time)
-            frq, pwr = labsp.psd(ftoe, fsamp)
-            ffrq = frq[np.argmax(pwr)]
-            cycle_time = 1 / ffrq
-            dsamples = int(cycle_time * fsamp * 0.1)
+            ftoe = ftoe / np.max(ftoe)
 
-            # get the contact phases
-            mask = ftoe < self.height_threshold
-            contacts = labsp.continuous_batches(mask)
-            contacts = [i for i in contacts if len(i) >= dsamples]
+            # get the minimum reasonable contact time for each step
+            dsamples = int(round(fsamp / 2))
 
-            # get the toe-offs
-            for i in contacts:
-                line = pd.Series({"time": time[i[-1]], "side": side})
-                tos += [pd.DataFrame(line).T]
+            # get the peaks at each cycle
+            pks = labsp.find_peaks(ftoe, 0.5, dsamples)
+
+            # for each peak obtain the location of the last sample at the
+            # required height threshold
+            for pk in pks:
+                idx = np.where(ftoe[:pk] <= self.height_threshold)[0]
+                if len(idx) > 0:
+                    line = pd.Series({"time": time[idx[-1]], "side": side})
+                    tos += [pd.DataFrame(line).T]
 
         # wrap the events
         if len(tos) == 0:
             raise ValueError("no toe-offs have been found.")
-        tos = pd.concat(tos, ignore_index=True).sort_values("time")
-        tos.reset_index(inplace=True, drop=True)
+        tos = pd.concat(tos, ignore_index=True)
+        tos = tos.drop_duplicates()
+        tos = tos.sort_values("time")
+        tos = tos.reset_index(drop=True)
 
         # check the alternation of the steps
         sides = tos.side.values
@@ -369,41 +378,35 @@ class RunningTest(gait.GaitTest):
                 "vertical_axis": self.vertical_axis,
                 "antpos_axis": self.antpos_axis,
             }
+
             if self.left_heel is not None:
                 col = self.left_heel.columns.get_level_values(0)[0]
                 args["left_heel"] = col
-            else:
-                args["left_heel"] = None
+
             if self.right_heel is not None:
                 col = self.right_heel.columns.get_level_values(0)[0]
                 args["right_heel"] = col
-            else:
-                args["right_heel"] = None
+
             if self.left_toe is not None:
                 col = self.left_toe.columns.get_level_values(0)[0]
                 args["left_toe"] = col
-            else:
-                args["left_toe"] = None
+
             if self.right_toe is not None:
                 col = self.right_toe.columns.get_level_values(0)[0]
                 args["right_toe"] = col
-            else:
-                args["right_toe"] = None
+
             if self.left_meta_head is not None:
                 col = self.left_meta_head.columns.get_level_values(0)[0]
                 args["left_meta_head"] = col
-            else:
-                args["left_meta_head"] = None
+
             if self.right_meta_head is not None:
                 col = self.right_meta_head.columns.get_level_values(0)[0]
                 args["right_meta_head"] = col
-            else:
-                args["right_meta_head"] = None
+
             if self.grf is not None:
                 args["grf"] = self.grf.columns.get_level_values(0)[0]
-            else:
-                args["grf"] = None
-            self._cycles += [RunningStep(**args)]
+
+            self._cycles += [RunningStep(**args)]  # type: ignore
 
     def _find_cycles_kinetics(self):
         """find the gait cycles using the kinetics algorithm"""
@@ -422,19 +425,33 @@ class RunningTest(gait.GaitTest):
         mlcf = self._filter_kinetics(mlc, time)
 
         # check if there are flying phases
-        flights = labsp.continuous_batches(grff <= self.grf_threshold)
-        if len(flights) > 0 and flights[0][0] == 0:
-            flights = flights[1:]
-
-        # in case of positive contacts we have a running test
-        if len(flights) == 0:
+        flights = grf <= self.grf_threshold
+        if not any(flights):
             raise ValueError("No flight phases have been found on data.")
 
-        # get the toe-offs
-        tos = [i[0] for i in flights]
+        # get the minimum reasonable contact time for each step
+        fsamp = float(1 / np.mean(np.diff(time)))
+        dsamples = int(round(fsamp / 4))
+
+        # get the peaks in the normalized grf, then return toe-offs and foot
+        # strikes
+        grfn = grff / np.max(grff)
+        toi = []
+        fsi = []
+        pks = labsp.find_peaks(grfn, 0.5, dsamples)
+        for pk in pks:
+            to = np.where(grfn[pk:] < self.height_threshold)[0]
+            fs = np.where(grfn[:pk] < self.height_threshold)[0]
+            if len(fs) > 0 and len(to) > 0:
+                toi += [to[0] + pk]
+                if len(toi) > 1:
+                    fsi += [fs[-1]]
+        toi = np.unique(toi)
+        fsi = np.unique(fsi)
 
         # get the mean latero-lateral position of each contact
-        pos = [np.mean(mlcf[i]) for i in flights]
+        contacts = [np.arange(i, j + 1) for i, j in zip(fsi, toi[1:])]
+        pos = [np.nanmean(mlcf[i]) for i in contacts]
 
         # get the mean value of alternated contacts and set the step sides
         # accordingly
@@ -442,12 +459,12 @@ class RunningTest(gait.GaitTest):
         odds = np.mean(pos[1:-1:2])
         sides = []
         for i in np.arange(len(pos)):
-            if evens > odds:
+            if evens < odds:
                 sides += ["LEFT" if i % 2 == 0 else "RIGHT"]
             else:
                 sides += ["LEFT" if i % 2 != 0 else "RIGHT"]
 
-        for to, ed, side in zip(tos[:-1], tos[1:], sides):
+        for to, ed, side in zip(toi[:-1], toi[1:], sides):
             t0 = float(time[to])
             t1 = float(time[ed])
             args = {
@@ -493,7 +510,7 @@ class RunningTest(gait.GaitTest):
                 args["grf"] = self.grf.columns.get_level_values(0)[0]
             else:
                 args["grf"] = None
-            self._cycles += [RunningStep(**args)]
+            self._cycles += [RunningStep(**args)]  # type: ignore
 
     def _make_summary_plot(
         self,
@@ -616,8 +633,8 @@ class RunningTest(gait.GaitTest):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = gait.GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = gait.HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):

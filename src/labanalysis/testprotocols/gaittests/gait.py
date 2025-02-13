@@ -12,6 +12,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from ...constants import (
+    DEFAULT_MINIMUM_CONTACT_GRF_N,
+    DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+)
+
 from ... import signalprocessing as labsp
 from ...plotting.plotly import bars_with_normative_bands
 from ..base import LabTest
@@ -20,13 +25,7 @@ from ..frames import StateFrame
 #! CONSTANTS
 
 
-GRF_THRESHOLD_DEFAULT = 100
-HEIGHT_THRESHOLD_DEFAULT = 0.01
-
-
 __all__ = [
-    "GRF_THRESHOLD_DEFAULT",
-    "HEIGHT_THRESHOLD_DEFAULT",
     "GaitCycle",
     "GaitTest",
 ]
@@ -216,7 +215,7 @@ class GaitObject(StateFrame):
     def _filter_kinetics(self, grf: np.ndarray, time: np.ndarray):
         """filter the ground reaction force signal"""
         fsamp = float(1 / np.mean(np.diff(time)))
-        grff = labsp.fillna(grf).astype(float).flatten()  # type: ignore
+        grff = labsp.fillna(grf, value=0).astype(float).flatten()  # type: ignore
         grff = labsp.butterworth_filt(
             arr=grff.astype(float).flatten(),
             fcut=[10, 100],
@@ -333,8 +332,8 @@ class GaitObject(StateFrame):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
@@ -561,8 +560,8 @@ class GaitCycle(GaitObject):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
@@ -867,7 +866,7 @@ class GaitTest(GaitObject, LabTest):
             traces = [i for i in fig.data if i.yaxis == yaxis]  # type: ignore
             minv = np.min([np.nanmin(i.y) for i in traces])  # type: ignore
             maxv = np.max([np.nanmax(i.y) for i in traces])  # type: ignore
-            range = [minv, maxv]
+            y_range = [minv, maxv]
 
             # plot the cycles
             for i, cycle in enumerate(self.cycles):
@@ -881,7 +880,7 @@ class GaitTest(GaitObject, LabTest):
                     col=1,
                     trace=go.Scatter(
                         x=[init, init],
-                        y=range,
+                        y=y_range,
                         line_dash="solid",
                         line_color=color,
                         opacity=0.3,
@@ -896,7 +895,7 @@ class GaitTest(GaitObject, LabTest):
                     col=1,
                     trace=go.Scatter(
                         x=[end, end],
-                        y=range,
+                        y=y_range,
                         line_dash="dashdot",
                         line_color=color,
                         opacity=0.3,
@@ -911,7 +910,7 @@ class GaitTest(GaitObject, LabTest):
                     col=1,
                     trace=go.Scatter(
                         x=[footstrike, footstrike],
-                        y=range,
+                        y=y_range,
                         mode="lines",
                         line_dash="dash",
                         line_color=color,
@@ -926,7 +925,7 @@ class GaitTest(GaitObject, LabTest):
                     col=1,
                     trace=go.Scatter(
                         x=[midstance, midstance],
-                        y=range,
+                        y=y_range,
                         mode="lines",
                         line_dash="dot",
                         line_color=color,
@@ -938,12 +937,11 @@ class GaitTest(GaitObject, LabTest):
                 )
 
             # plot the thresholds
-            if ref == "GRF":
-                thres = self.grf_threshold
-            elif ref == "COP":
+            if ref == "COP":
                 thres = 0
             else:
                 thres = self.height_threshold
+            thres = float(thres * np.max(y_range))
             fig.add_trace(
                 row=row + 1,
                 col=1,
@@ -991,8 +989,8 @@ class GaitTest(GaitObject, LabTest):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
@@ -1024,8 +1022,8 @@ class GaitTest(GaitObject, LabTest):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = GRF_THRESHOLD_DEFAULT,
-        height_threshold: float | int = HEIGHT_THRESHOLD_DEFAULT,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):

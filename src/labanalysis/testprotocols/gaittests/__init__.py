@@ -3,3 +3,4 @@
 #! IMPORTS
 
 from .runningtest import *
+from .walkingtest import *

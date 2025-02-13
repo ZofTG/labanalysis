@@ -4,7 +4,7 @@
 
 
 import sys
-from os.path import dirname, join
+from os.path import dirname, join, sep
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
 
@@ -18,12 +18,55 @@ __all__ = ["test_gaits"]
 
 def test_run():
     """test the run test"""
-    print("\nTEST RUN")
     path = join(dirname(__file__), "gaitanalysis_data")
-    files = [join(path, "run_test.tdf"), join(path, "run_test_2.tdf")]
+    files = [i for i in get_files(path, ".tdf", False) if "run_test" in i]
+    figures = {}
     for file in files:
+        print(f"\nTEST {file}")
+        test = RunningTest.from_tdf_file(
+            file=file,
+            algorithm="kinematics",
+            left_heel="l_heel",
+            right_heel="r_heel",
+            left_toe="l_toe",
+            right_toe="r_toe",
+            left_meta_head="l_met",
+            right_meta_head="r_met",
+            grf="fRes",
+        )
+        for algorithm in ["kinematics", "kinetics"]:
+            test.set_algorithm(algorithm)  # type: ignore
+            name = file.rsplit(sep, 1)[-1].rsplit(".", 1)[0]
+
+            # summary plots
+            fig, dfr = test.summary()
+            for key, val in fig.items():
+                title = val.layout.title.text + f" ({test.algorithm})"  # type: ignore
+                title = " ".join([name, title])
+                val.update_layout(title=title)
+                figures[title] = val
+
+            # results plot
+            fig, dfr = test.results()
+            title = [name, fig.layout.title.text + f" ({test.algorithm})"]  # type: ignore
+            title = " ".join(title)
+            fig.update_layout(title=title)
+            figures[title] = fig
+
+    # store the figures
+    for key, val in figures.items():
+        val.write_html(join(path, key + ".html"))
+    print("RUNNING TEST COMPLETED")
+
+
+def test_walk():
+    """test the walk test"""
+    path = join(dirname(__file__), "gaitanalysis_data")
+    files = [i for i in get_files(path, ".tdf", False) if "walk_test" in i]
+    for file in files:
+        print(f"\nTEST {file}")
         frame = StateFrame.from_tdf_file(file)
-        run_test = RunningTest(
+        test = WalkingTest(
             frame=frame,
             algorithm="kinematics",
             left_heel="l_heel",
@@ -34,27 +77,22 @@ def test_run():
             right_meta_head="r_met",
             grf="fRes",
         )
-        fig, dfr = run_test.summary()
-        fig, dfr = run_test.results()
-        fig_name = file.replace(".tdf", "_kinematics.html")
-        fig.write_html(fig_name)
-        run_test.set_algorithm("kinetics")
-        fig, dfr = run_test.results()
-        fig_name = file.replace(".tdf", "_kinetics.html")
-        fig.write_html(fig_name)
-    print("RUNNING TEST COMPLETED")
-
-
-def test_walk():
-    """test the run test"""
-    print("\nTEST WALK")
-    # TODO: add walk test
-    print("WALK TEST NOT IMPLEMENTED")
-    print("WALK TEST COMPLETED")
+        for algorithm in ["kinetics", "kinematics"]:
+            test.set_algorithm(algorithm)  # type: ignore
+            fig, dfr = test.summary()
+            for key, val in fig.items():
+                title = val.layout.title.text + f" ({test.algorithm})"  # type: ignore
+                val.update_layout(title=title)
+                val.show()
+            fig, dfr = test.results()
+            title = fig.layout.title.text + f" ({test.algorithm})"  # type: ignore
+            fig.update_layout(title=title)
+            fig.show()
+    print("WALKING TEST COMPLETED")
 
 
 def test_gaits():
-    """test the jumptests module"""
+    """test the gaittests module"""
     test_run()
     test_walk()
 
