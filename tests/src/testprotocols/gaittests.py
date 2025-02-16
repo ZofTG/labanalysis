@@ -4,6 +4,7 @@
 
 
 import sys
+from os import makedirs
 from os.path import dirname, join, sep
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
@@ -19,8 +20,9 @@ __all__ = ["test_gaits"]
 def test_run():
     """test the run test"""
     path = join(dirname(__file__), "gaitanalysis_data")
+    figpath = join(path, "results")
+    makedirs(figpath, exist_ok=True)
     files = [i for i in get_files(path, ".tdf", False) if "run_test" in i]
-    figures = {}
     for file in files:
         print(f"\nTEST {file}")
         test = RunningTest.from_tdf_file(
@@ -44,18 +46,15 @@ def test_run():
                 title = val.layout.title.text + f" ({test.algorithm})"  # type: ignore
                 title = " ".join([name, title])
                 val.update_layout(title=title)
-                figures[title] = val
+                val.write_html(join(figpath, title + ".html"))
 
             # results plot
             fig, dfr = test.results()
             title = [name, fig.layout.title.text + f" ({test.algorithm})"]  # type: ignore
             title = " ".join(title)
             fig.update_layout(title=title)
-            figures[title] = fig
+            fig.write_html(join(figpath, title + ".html"))
 
-    # store the figures
-    for key, val in figures.items():
-        val.write_html(join(path, key + ".html"))
     print("RUNNING TEST COMPLETED")
 
 

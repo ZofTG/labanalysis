@@ -146,8 +146,7 @@ class RunningStep(gait.GaitCycle):
         if self.grf is None:
             raise ValueError("no ground reaction force data available.")
         vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis]
-        vgrf = labsp.fillna(vgrf).values.astype(float).flatten()  # type: ignore
+        vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
         time = self.grf.index.to_numpy()
         grff = self._filter_kinetics(vgrf, time)
         grfn = grff / np.max(grff)
@@ -195,8 +194,7 @@ class RunningStep(gait.GaitCycle):
             raise ValueError("no ground reaction force data available.")
         time = self.grf.index.to_numpy()
         vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis]
-        vgrf = labsp.fillna(vgrf).values.astype(float).flatten()  # type: ignore
+        vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
         grff = self._filter_kinetics(vgrf, time)
         return float(time[np.argmax(grff)])
 

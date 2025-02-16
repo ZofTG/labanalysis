@@ -215,9 +215,9 @@ class GaitObject(StateFrame):
     def _filter_kinetics(self, grf: np.ndarray, time: np.ndarray):
         """filter the ground reaction force signal"""
         fsamp = float(1 / np.mean(np.diff(time)))
-        grff = labsp.fillna(grf, value=0).astype(float).flatten()  # type: ignore
+        grff = labsp.fillna(grf.astype(float).flatten(), value=0)
         grff = labsp.butterworth_filt(
-            arr=grff.astype(float).flatten(),
+            arr=grff.astype(float).flatten(),  # type: ignore
             fcut=[10, 100],
             fsamp=fsamp,
             order=4,
