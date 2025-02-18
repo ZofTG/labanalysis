@@ -20,8 +20,6 @@ __all__ = ["test_gaits"]
 def test_run():
     """test the run test"""
     path = join(dirname(__file__), "gaitanalysis_data")
-    figpath = join(path, "results")
-    makedirs(figpath, exist_ok=True)
     files = [i for i in get_files(path, ".tdf", False) if "run_test" in i]
     for file in files:
         print(f"\nTEST {file}")
@@ -39,19 +37,19 @@ def test_run():
         for algorithm in ["kinematics", "kinetics"]:
             test.set_algorithm(algorithm)  # type: ignore
             name = file.rsplit(sep, 1)[-1].rsplit(".", 1)[0]
+            figpath = join(path, "results", name)
+            makedirs(figpath, exist_ok=True)
 
             # summary plots
             fig, dfr = test.summary()
             for key, val in fig.items():
                 title = val.layout.title.text + f" ({test.algorithm})"  # type: ignore
-                title = " ".join([name, title])
                 val.update_layout(title=title)
                 val.write_html(join(figpath, title + ".html"))
 
             # results plot
             fig, dfr = test.results()
-            title = [name, fig.layout.title.text + f" ({test.algorithm})"]  # type: ignore
-            title = " ".join(title)
+            title = " ".join([fig.layout.title.text + f" ({test.algorithm})"])  # type: ignore
             fig.update_layout(title=title)
             fig.write_html(join(figpath, title + ".html"))
 
