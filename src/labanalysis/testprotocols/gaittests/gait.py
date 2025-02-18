@@ -10,25 +10,20 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
+from ... import signalprocessing as labsp
 from ...constants import (
     DEFAULT_MINIMUM_CONTACT_GRF_N,
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
-
-from ... import signalprocessing as labsp
-from ...plotting.plotly import bars_with_normative_bands
 from ..base import LabTest
 from ..frames import StateFrame
+
 
 #! CONSTANTS
 
 
-__all__ = [
-    "GaitCycle",
-    "GaitTest",
-]
+__all__ = ["GaitCycle", "GaitTest"]
 
 
 #! CLASSESS
@@ -43,22 +38,6 @@ class GaitObject(StateFrame):
     frame: StateFrame
         a stateframe object containing all the available kinematic, kinetic
         and emg data related to the cycle
-
-    algorithm: Literal['kinematics', 'kinetics'] = 'kinematics'
-        If algorithm = 'kinematics' and markers are available an algorithm
-        based just on kinematic data is adopted to detect the gait cycles.
-        To run the kinematics algorithm, the following markers must be available:
-            - left_heel
-            - right_heel
-            - left_toe
-            - right_toe
-            - left_meta_head (Optional)
-            - right_meta_head (Optional)
-        If algorithm = 'kinetics' and forceplatforms data is available,
-        only kinetic data are used to detect the gait cycles. If this is the
-        case, the following force vector must be available:
-            - grf
-        If any of the two algorithms cannot run, a warning is thrown.
 
     left_heel: str = 'lHeel'
         the left heel label
@@ -98,7 +77,7 @@ class GaitObject(StateFrame):
 
     # * class variables
 
-    _algorithm: Literal["kinematics", "kinetics"]
+    _algorithm: Literal["kinetics", "kinematics"]
     _left_heel: pd.DataFrame | None
     _right_heel: pd.DataFrame | None
     _left_toe: pd.DataFrame | None
@@ -116,7 +95,7 @@ class GaitObject(StateFrame):
 
     @property
     def algorithm(self):
-        """return the gait cycle detection algorithm"""
+        """the selected cycle detection algorithm"""
         return self._algorithm
 
     @property
@@ -130,12 +109,12 @@ class GaitObject(StateFrame):
         return float(self.to_dataframe().index.to_list()[-1])
 
     @property
-    def grf(self):
+    def resultant_force(self):
         """return the ground reaction force data"""
         return self._grf
 
     @property
-    def cop(self):
+    def centre_of_pressure(self):
         """return the center of pressure data"""
         return self._cop
 
@@ -240,61 +219,6 @@ class GaitObject(StateFrame):
         )
         return fcoord.astype(float).flatten()
 
-    def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
-        """set the gait cycle detection algorithm"""
-        algorithms = ["kinematics", "kinetics"]
-        if not isinstance(algorithm, str) or algorithm not in algorithms:
-            msg = "'algorithm' must be any between 'kinematics' or 'kinetics'."
-            raise ValueError(msg)
-        algo = algorithm
-        if (
-            algo == "kinetics"
-            and self.grf is None
-            and all(
-                [
-                    self.left_heel is not None,
-                    self.left_toe is not None,
-                    self.right_heel is not None,
-                    self.right_toe is not None,
-                ]
-            )
-        ):
-            msg = f"'forceplatforms data' not found. The 'algorithm' option"
-            msg += " has been set to 'kinematics'."
-            warnings.warn(msg)
-            algo = "kinematics"
-        elif (
-            algo == "kinematics"
-            and self.grf is not None
-            and not all(
-                [
-                    self.left_heel is not None,
-                    self.left_toe is not None,
-                    self.right_heel is not None,
-                    self.right_toe is not None,
-                ]
-            )
-        ):
-            msg = f"Not all left_heel, right_heel, left_toe and right_toe"
-            msg += " markers have been found to run the 'kinematics' algorithm."
-            msg += " The 'kinetics' algorithm has therefore been selected."
-            warnings.warn(msg)
-            algo = "kinetics"
-        elif self.grf is None and any(
-            [
-                self.left_heel is None,
-                self.left_toe is None,
-                self.right_heel is None,
-                self.right_toe is None,
-            ]
-        ):
-            msg = "Neither ground reaction force nor left_heel, right_heel, "
-            msg += "left_toe and right_toe markers have been found."
-            msg += " Therefore none of the available algorithms can be used."
-            raise ValueError(msg)
-
-        self._algorithm = algo
-
     def set_grf_threshold(self, threshold: float | int):
         """set the grf threshold"""
         if not isinstance(threshold, (int, float)):
@@ -319,12 +243,66 @@ class GaitObject(StateFrame):
             raise ValueError("'axis' must be 'X', 'Y' or 'Z'")
         self._antpos_axis = axis
 
+    def _set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
+        """set the gait cycle detection algorithm"""
+        algorithms = ["kinematics", "kinetics"]
+        if not isinstance(algorithm, str) or algorithm not in algorithms:
+            msg = "'algorithm' must be any between 'kinematics' or 'kinetics'."
+            raise ValueError(msg)
+        algo = algorithm
+        if (
+            algo == "kinetics"
+            and self.resultant_force is None
+            and all(
+                [
+                    self.left_heel is not None,
+                    self.left_toe is not None,
+                    self.right_heel is not None,
+                    self.right_toe is not None,
+                ]
+            )
+        ):
+            msg = f"'forceplatforms data' not found. The 'algorithm' option"
+            msg += " has been set to 'kinematics'."
+            warnings.warn(msg)
+            algo = "kinematics"
+        elif (
+            algo == "kinematics"
+            and self.resultant_force is not None
+            and not all(
+                [
+                    self.left_heel is not None,
+                    self.left_toe is not None,
+                    self.right_heel is not None,
+                    self.right_toe is not None,
+                ]
+            )
+        ):
+            msg = f"Not all left_heel, right_heel, left_toe and right_toe"
+            msg += " markers have been found to run the 'kinematics' algorithm."
+            msg += " The 'kinetics' algorithm has therefore been selected."
+            warnings.warn(msg)
+            algo = "kinetics"
+        elif self.resultant_force is None and any(
+            [
+                self.left_heel is None,
+                self.left_toe is None,
+                self.right_heel is None,
+                self.right_toe is None,
+            ]
+        ):
+            msg = "Neither ground reaction force nor left_heel, right_heel, "
+            msg += "left_toe and right_toe markers have been found."
+            msg += " Therefore none of the available algorithms can be used."
+            raise ValueError(msg)
+
+        self._algorithm = algo
+
     # * constructor
 
     def __init__(
         self,
         frame: StateFrame,
-        algorithm: Literal["kinematics", "kinetics"] = "kinematics",
         left_heel: str | None = "lHeel",
         right_heel: str | None = "rHeel",
         left_toe: str | None = "lToe",
@@ -377,9 +355,6 @@ class GaitObject(StateFrame):
         if antpos_axis not in ["X", "Y", "Z"]:
             raise ValueError("'antpos_axis' must be 'X', 'Y' or 'Z'")
         self._antpos_axis = antpos_axis
-
-        # check the algorithm option
-        self.set_algorithm(algorithm)
 
 
 class GaitCycle(GaitObject):
@@ -454,16 +429,31 @@ class GaitCycle(GaitObject):
 
     # * class variables
 
-    _side: Literal["LEFT"] | Literal["RIGHT"]
+    _side: Literal["LEFT", "RIGHT"]
     _footstrike_s: float
     _midstance_s: float
+    _absolute_time_events: list[str] = [
+        "footstrike_s",
+        "midstance_s",
+        "init_s",
+        "end_s",
+    ]
 
     # * attributes
+
+    @property
+    def absolute_time_events(self):
+        return self._absolute_time_events
 
     @property
     def side(self):
         """return the end time in seconds"""
         return self._side
+
+    @property
+    def algorithm(self):
+        """return the step detection algorithm"""
+        return self._algorithm
 
     @property
     def cycle_time_s(self):
@@ -489,7 +479,7 @@ class GaitCycle(GaitObject):
                 name = lbl.rsplit("_", 1)[0].strip().split(" ")[0].lower()
                 time = getattr(self, lbl)
                 perc = time
-                if lbl in ["footstrike_s", "midstance_s", "init_s", "end_s"]:
+                if lbl in self._absolute_time_events:
                     perc -= self.init_s
                 perc = perc / self.cycle_time_s * 100
                 line_abs = {"Parameter": name, "Unit": "s", "Value": time}
@@ -543,7 +533,7 @@ class GaitCycle(GaitObject):
 
     def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
         """set the gait cycle detection algorithm"""
-        super().set_algorithm(algorithm=algorithm)
+        self._set_algorithm(algorithm)
         self._update_events()
 
     # * constructor
@@ -567,7 +557,6 @@ class GaitCycle(GaitObject):
     ):
         super().__init__(
             frame=frame,
-            algorithm=algorithm,
             left_heel=left_heel,
             right_heel=right_heel,
             left_toe=left_toe,
@@ -588,7 +577,7 @@ class GaitCycle(GaitObject):
             self._side = side
 
         # update the gait events
-        self._update_events()
+        self.set_algorithm(algorithm)
 
 
 class GaitTest(GaitObject, LabTest):
@@ -785,188 +774,7 @@ class GaitTest(GaitObject, LabTest):
         """
         generate a view with allowing to understand the detected gait cycles
         """
-        # get the data to be plotted
-        data = []
-        labels = [
-            "GRF",
-            "COP",
-            "left_heel",
-            "right_heel",
-            "left_toe",
-            "right_toe",
-            "left_meta_head",
-            "right_meta_head",
-        ]
-        for label in labels:
-            dfr = getattr(self, label.lower())
-            if dfr is not None:
-                if label == "COP":
-                    axs = [self.vertical_axis, self.antpos_axis]
-                    yaxis = [i for i in ["X", "Y", "Z"] if i not in axs][0]
-                else:
-                    yaxis = self.vertical_axis
-                if label in ["GRF", "COP"]:
-                    ffun = self._filter_kinetics
-                else:
-                    ffun = self._filter_kinematics
-                arr = dfr[dfr.columns.get_level_values(0)[0]]
-                arr = arr[yaxis].values.astype(float).flatten()
-                time = dfr.index.to_numpy()
-                filt = ffun(arr, time)
-                if label in ["COP"]:
-                    arr -= np.nanmean(arr)
-                    filt -= np.nanmean(filt)
-                elif label not in ["GRF", "COP"]:
-                    arr -= np.nanmin(arr)
-                unit = dfr.columns.to_list()[0][-1]
-                row = {"Raw": arr, "Filtered": filt, "Time": time, "Unit": unit}
-                row = pd.DataFrame(row)
-                row = row.melt(
-                    id_vars=["Time", "Unit"],
-                    var_name="Type",
-                    value_name="Value",
-                )
-                row.insert(0, "Source", np.tile(label, row.shape[0]))
-                data.append(row)
-        data = pd.concat(data, ignore_index=True)
-        labels, units = np.unique(
-            data[["Source", "Unit"]].values.astype(str),
-            axis=0,
-        ).T
-
-        # generate the output figure
-        fig = px.line(
-            data_frame=data,
-            x="Time",
-            y="Value",
-            color="Type",
-            facet_row="Source",
-            template="simple_white",
-            title="RunningTest",
-            height=300 * len(labels),
-        )
-
-        # update the layout
-        fig.update_xaxes(showticklabels=True)
-        fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-        fig.update_traces(opacity=0.5)
-        fig.update_yaxes(matches=None)
-
-        # add cycles and thresholds
-        time = self.to_dataframe().index.to_numpy()[[0, -1]]
-        for row in np.arange(len(labels)):
-
-            # update the y-axis label
-            ref = fig.layout.annotations[row].text  # type: ignore
-            unit = str(units[np.where(labels == ref)[0][0]])
-            fig.update_yaxes(title_text=unit, row=row + 1)
-
-            # get the y-axis range
-            yaxis = "y" + ("" if row == 0 else str(row + 1))
-            traces = [i for i in fig.data if i.yaxis == yaxis]  # type: ignore
-            minv = np.min([np.nanmin(i.y) for i in traces])  # type: ignore
-            maxv = np.max([np.nanmax(i.y) for i in traces])  # type: ignore
-            y_range = [minv, maxv]
-
-            # plot the cycles
-            for i, cycle in enumerate(self.cycles):
-                color = "purple" if cycle.side == "LEFT" else "green"
-                init = cycle.init_s
-                footstrike = cycle.footstrike_s
-                midstance = cycle.midstance_s
-                end = cycle.end_s
-                fig.add_trace(
-                    row=row + 1,
-                    col=1,
-                    trace=go.Scatter(
-                        x=[init, init],
-                        y=y_range,
-                        line_dash="solid",
-                        line_color=color,
-                        opacity=0.3,
-                        mode="lines",
-                        name=f"init ({cycle.side})",
-                        showlegend=bool((row == 0) & (i < 2)),
-                        legendgroup=f"init ({cycle.side})",
-                    ),
-                )
-                fig.add_trace(
-                    row=row + 1,
-                    col=1,
-                    trace=go.Scatter(
-                        x=[end, end],
-                        y=y_range,
-                        line_dash="dashdot",
-                        line_color=color,
-                        opacity=0.3,
-                        name=f"end ({cycle.side})",
-                        mode="lines",
-                        showlegend=bool((row == 0) & (i < 2)),
-                        legendgroup=f"end ({cycle.side})",
-                    ),
-                )
-                fig.add_trace(
-                    row=row + 1,
-                    col=1,
-                    trace=go.Scatter(
-                        x=[footstrike, footstrike],
-                        y=y_range,
-                        mode="lines",
-                        line_dash="dash",
-                        line_color=color,
-                        opacity=0.3,
-                        name=f"footstrike ({cycle.side})",
-                        showlegend=bool((row == 0) & (i < 2)),
-                        legendgroup=f"footstrike ({cycle.side})",
-                    ),
-                )
-                fig.add_trace(
-                    row=row + 1,
-                    col=1,
-                    trace=go.Scatter(
-                        x=[midstance, midstance],
-                        y=y_range,
-                        mode="lines",
-                        line_dash="dot",
-                        line_color=color,
-                        opacity=0.3,
-                        name=f"midstance ({cycle.side})",
-                        showlegend=bool((row == 0) & (i < 2)),
-                        legendgroup=f"midstance ({cycle.side})",
-                    ),
-                )
-
-            # plot the thresholds
-            if ref == "COP":
-                thres = 0
-            else:
-                thres = self.height_threshold
-            thres = float(thres * np.max(y_range))
-            fig.add_trace(
-                row=row + 1,
-                col=1,
-                trace=go.Scatter(
-                    x=time,
-                    y=[thres, thres],
-                    mode="lines",
-                    line_dash="dot",
-                    line_color="black",
-                    opacity=0.3,
-                    name="Threshold",
-                    showlegend=bool(row == 0),
-                ),
-            )
-
-        return fig
-
-    def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
-        """set the gait cycle detection algorithm"""
-        super().set_algorithm(algorithm)
-        self._cycles = []
-        if self.algorithm == "kinetics":
-            self._find_cycles_kinetics()
-        elif self.algorithm == "kinematics":
-            self._find_cycles_kinematics()
+        return NotImplementedError
 
     def _find_cycles_kinetics(self) -> None:
         """find the gait cycles using the kinetics algorithm"""
@@ -975,6 +783,17 @@ class GaitTest(GaitObject, LabTest):
     def _find_cycles_kinematics(self) -> None:
         """find the gait cycles using the kinematics algorithm"""
         raise NotImplementedError
+
+    def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
+        """set the gait cycle detection algorithm"""
+        self._set_algorithm(algorithm)
+
+        # update cycles
+        self._cycles = []
+        if self.algorithm == "kinetics":
+            self._find_cycles_kinetics()
+        elif self.algorithm == "kinematics":
+            self._find_cycles_kinematics()
 
     # * constructors
 
@@ -994,9 +813,14 @@ class GaitTest(GaitObject, LabTest):
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):
+
+        # check the frame
+        if not isinstance(frame, StateFrame):
+            raise ValueError("'frame' must be a StateFrame instance.")
+
+        # initialize the object
         super().__init__(
             frame=frame,
-            algorithm=algorithm,
             left_heel=left_heel,
             right_heel=right_heel,
             left_toe=left_toe,
@@ -1009,6 +833,9 @@ class GaitTest(GaitObject, LabTest):
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
         )
+
+        # check the algorithm option
+        self.set_algorithm(algorithm)
 
     @classmethod
     def from_tdf_file(

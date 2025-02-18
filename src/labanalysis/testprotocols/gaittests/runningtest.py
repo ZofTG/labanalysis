@@ -10,11 +10,7 @@ import numpy as np
 import pandas as pd
 import plotly.express.colors as colors
 import plotly.graph_objects as go
-
-from ...constants import (
-    DEFAULT_MINIMUM_CONTACT_GRF_N,
-    DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
-)
+import plotly.express as px
 
 from ... import signalprocessing as labsp
 from ...plotting.plotly import bars_with_normative_bands
@@ -143,11 +139,11 @@ class RunningStep(gait.GaitCycle):
         """find the footstrike time using the kinetics algorithm"""
 
         # get the contact phase samples
-        if self.grf is None:
+        if self.resultant_force is None:
             raise ValueError("no ground reaction force data available.")
-        vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
+        vgrf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
         vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
-        time = self.grf.index.to_numpy()
+        time = self.resultant_force.index.to_numpy()
         grff = self._filter_kinetics(vgrf, time)
         grfn = grff / np.max(grff)
         mask = np.where((grfn < self.height_threshold)[: np.argmax(grfn)])[0]
@@ -190,10 +186,10 @@ class RunningStep(gait.GaitCycle):
 
     def _midstance_kinetics(self):
         """find the midstance time using the kinetics algorithm"""
-        if self.grf is None:
+        if self.resultant_force is None:
             raise ValueError("no ground reaction force data available.")
-        time = self.grf.index.to_numpy()
-        vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
+        time = self.resultant_force.index.to_numpy()
+        vgrf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
         vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
         grff = self._filter_kinetics(vgrf, time)
         return float(time[np.argmax(grff)])
@@ -401,23 +397,25 @@ class RunningTest(gait.GaitTest):
                 col = self.right_meta_head.columns.get_level_values(0)[0]
                 args["right_meta_head"] = col
 
-            if self.grf is not None:
-                args["grf"] = self.grf.columns.get_level_values(0)[0]
+            if self.resultant_force is not None:
+                args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
 
             self._cycles += [RunningStep(**args)]  # type: ignore
 
     def _find_cycles_kinetics(self):
         """find the gait cycles using the kinetics algorithm"""
-        if self.grf is None or self.cop is None:
+        if self.resultant_force is None or self.centre_of_pressure is None:
             raise ValueError("no ground reaction force data available.")
 
         # get the grf and the latero-lateral COP
-        time = self.grf.index.to_numpy()
+        time = self.resultant_force.index.to_numpy()
         axs = [self.vertical_axis, self.antpos_axis]
         axs = [i for i in ["X", "Y", "Z"] if i not in axs]
-        mlc = self.cop[self.cop.columns.get_level_values(0)[0]].loc[:, axs]
+        mlc = self.centre_of_pressure[
+            self.centre_of_pressure.columns.get_level_values(0)[0]
+        ].loc[:, axs]
         mlc = mlc.values.astype(float).flatten()
-        grf = self.grf[self.grf.columns.get_level_values(0)[0]]
+        grf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
         grf = grf[self.vertical_axis].values.astype(float).flatten()
         grff = self._filter_kinetics(grf, time)
         mlcf = self._filter_kinetics(mlc, time)
@@ -504,8 +502,8 @@ class RunningTest(gait.GaitTest):
                 args["right_meta_head"] = col
             else:
                 args["right_meta_head"] = None
-            if self.grf is not None:
-                args["grf"] = self.grf.columns.get_level_values(0)[0]
+            if self.resultant_force is not None:
+                args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
             else:
                 args["grf"] = None
             self._cycles += [RunningStep(**args)]  # type: ignore
@@ -618,6 +616,148 @@ class RunningTest(gait.GaitTest):
 
         return figures
 
+    def _make_results_plot(self):
+        """
+        generate a view with allowing to understand the detected gait cycles
+        """
+        # get the data to be plotted
+        data = []
+        labels = [
+            "resultant_force",
+            "centre_of_pressure",
+            "left_heel",
+            "right_heel",
+            "left_toe",
+            "right_toe",
+            "left_meta_head",
+            "right_meta_head",
+        ]
+        for label in labels:
+            dfr = getattr(self, label.lower())
+            if dfr is not None:
+                if label in ["resultant_force"]:
+                    ffun = self._filter_kinetics
+                    yaxes = [self.vertical_axis, self.antpos_axis]
+                elif label in ["centre_of_pressure"]:
+                    ffun = self._filter_kinetics
+                    yaxes = [self.vertical_axis, self.antpos_axis]
+                    yaxes += [i for i in ["X", "Y", "Z"] if i not in yaxes]
+                else:
+                    ffun = self._filter_kinematics
+                    yaxes = [self.vertical_axis]
+                for yaxis in yaxes:
+                    arr = dfr[dfr.columns.get_level_values(0)[0]]
+                    arr = arr[yaxis].values.astype(float).flatten()
+                    time = dfr.index.to_numpy()
+                    filt = ffun(arr, time)
+                    if label in ["centre_of_pressure"]:
+                        arr -= np.nanmean(arr)
+                        filt -= np.nanmean(filt)
+                    elif label not in ["resultant_force", "centre_of_pressure"]:
+                        arr -= np.nanmin(arr)
+                    unit = dfr.columns.to_list()[0][-1]
+                    row = {"Raw": arr, "Filtered": filt, "Time": time, "Unit": unit}
+                    row = pd.DataFrame(row)
+                    row = row.melt(
+                        id_vars=["Time", "Unit"],
+                        var_name="Type",
+                        value_name="Value",
+                    )
+                    if yaxis == self.vertical_axis:
+                        orientation = "VERTICAL"
+                    elif yaxis == self.antpos_axis:
+                        orientation = "ANTERIOR-POSTERIOR"
+                    else:
+                        orientation = "LATERO-LATERAL"
+                    source = f'{label.upper().replace("_", " ")}<br>'
+                    source += f"({orientation})"
+                    row.insert(0, "Source", np.tile(source, row.shape[0]))
+                    data.append(row)
+        data = pd.concat(data, ignore_index=True)
+        labels, units = np.unique(
+            data[["Source", "Unit"]].values.astype(str),
+            axis=0,
+        ).T
+
+        # generate the output figure
+        fig = px.line(
+            data_frame=data,
+            x="Time",
+            y="Value",
+            color="Type",
+            facet_row="Source",
+            template="simple_white",
+            title=self.name,
+            height=300 * len(labels),
+        )
+
+        # update the layout
+        fig.update_xaxes(showticklabels=True)
+        fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+        fig.update_traces(opacity=0.5)
+        fig.update_yaxes(matches=None)
+
+        # add cycles and thresholds
+        time = self.to_dataframe().index.to_numpy()[[0, -1]]
+        for row in np.arange(len(labels)):
+
+            # update the y-axis label
+            ref = fig.layout.annotations[row].text  # type: ignore
+            unit = str(units[np.where(labels == ref)[0][0]])
+            fig.update_yaxes(title_text=unit, row=row + 1)
+
+            # get the y-axis range
+            yaxis = "y" + ("" if row == 0 else str(row + 1))
+            traces = [i for i in fig.data if i.yaxis == yaxis]  # type: ignore
+            minv = np.min([np.nanmin(i.y) for i in traces])  # type: ignore
+            maxv = np.max([np.nanmax(i.y) for i in traces])  # type: ignore
+            y_range = [minv, maxv]
+
+            # plot the cycles
+            for i, cycle in enumerate(self.cycles):
+                color = "purple" if cycle.side == "LEFT" else "green"
+                styles = ["solid", "dash", "dot", "dashdot"]
+                for n, event in enumerate(cycle.absolute_time_events):
+                    time_event = getattr(cycle, event)
+                    fig.add_trace(
+                        row=row + 1,
+                        col=1,
+                        trace=go.Scatter(
+                            x=[time_event, time_event],
+                            y=y_range,
+                            line_dash=styles[n % len(styles)],
+                            line_color=color,
+                            opacity=0.3,
+                            mode="lines",
+                            name=f"{event} ({cycle.side})",
+                            showlegend=bool((row == 0) & (i < 2)),
+                            legendgroup=f"{event} ({cycle.side})",
+                        ),
+                    )
+
+            # plot the thresholds
+            if "CENTRE OF PRESSURE" in ref:
+                thres = 0
+            else:
+                thres = self.height_threshold
+            thres = float(thres * np.max(y_range))
+            fig.add_trace(
+                row=row + 1,
+                col=1,
+                trace=go.Scatter(
+                    x=time,
+                    y=[thres, thres],
+                    mode="lines",
+                    line_dash="dot",
+                    line_color="black",
+                    opacity=0.3,
+                    name="Threshold",
+                    showlegend=bool(row == 0),
+                ),
+            )
+
+        return fig
+
     # * constructor
 
     def __init__(
@@ -631,8 +771,8 @@ class RunningTest(gait.GaitTest):
         left_meta_head: str | None = "lMid",
         right_meta_head: str | None = "rMid",
         grf: str | None = "fRes",
-        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
-        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+        grf_threshold: float | int = gait.DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = gait.DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
     ):

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import plotly.express.colors as colors
 import plotly.graph_objects as go
+import plotly.express as px
 
 from ... import signalprocessing as labsp
 from ...plotting.plotly import bars_with_normative_bands
@@ -92,6 +93,19 @@ class WalkingStride(gait.GaitCycle):
     same foot.
     """
 
+    # * class variables
+
+    _opposite_footstrike_s: float
+    _absolute_time_events = [
+        "footstrike_s",
+        "opposite_footstrike_s",
+        "midstance_s",
+        "init_s",
+        "end_s",
+    ]
+
+    # * attributes
+
     @property
     def swing_frame(self):
         """return a stateframe corresponding to the swing phase of the step"""
@@ -112,90 +126,199 @@ class WalkingStride(gait.GaitCycle):
         """return the stance time in seconds"""
         return self.end_s - self.footstrike_s
 
+    @property
+    def opposite_footstrike_s(self):
+        """return the time corresponding to the toeoff of the opposite leg"""
+        return self._opposite_footstrike_s
+
+    @property
+    def first_double_support_frame(self):
+        """return a stateframe corresponding to the first double support phase"""
+        return self.slice(self.footstrike_s, self.midstance_s)
+
+    @property
+    def first_double_support_time_s(self):
+        """return the first double support time in seconds"""
+        return self.midstance_s - self.footstrike_s
+
+    @property
+    def second_double_support_frame(self):
+        """return a stateframe corresponding to the second double support phase"""
+        return self.slice(self.opposite_footstrike_s, self.end_s)
+
+    @property
+    def second_double_support_time_s(self):
+        """return the second double support time in seconds"""
+        return self.end_s - self.opposite_footstrike_s
+
+    @property
+    def single_support_frame(self):
+        """return a stateframe corresponding to the single support phase"""
+        return self.slice(self.midstance_s, self.opposite_footstrike_s)
+
+    @property
+    def single_support_time_s(self):
+        """return the single support time in seconds"""
+        return self.opposite_footstrike_s - self.midstance_s
+
     # * methods
+
+    def _get_grf_positive_crossing_times(self):
+        """find the positive crossings over the mean force"""
+        # get the ground reaction force
+        res = self.resultant_force
+        if res is None:
+            raise ValueError("no ground reaction force data available.")
+        vres = res[res.columns[0][0]][self.vertical_axis]
+        time = vres.index.to_numpy()
+        vres = vres.values.astype(float).flatten()
+        vres = self._filter_kinetics(vres, time)
+        vres -= np.nanmean(vres)
+        vres /= np.max(vres)
+
+        # get the zero-crossing points
+        zeros, signs = labsp.crossings(vres, 0)
+        return time[zeros[signs > 0]].astype(float)
 
     def _footstrike_kinetics(self):
         """find the footstrike time using the kinetics algorithm"""
-
-        # get the contact phase samples
-        if self.grf is None:
-            raise ValueError("no ground reaction force data available.")
-        vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis]
-        vgrf = labsp.fillna(vgrf).values.astype(float).flatten()  # type: ignore
-        time = self.grf.index.to_numpy()
-        grff = self._filter_kinetics(vgrf, time)
-        mask = grff >= self.grf_threshold
-        contacts = labsp.continuous_batches(mask)
-
-        # extract the first contact time
-        if len(contacts) == 0:
+        positive_zeros = self._get_grf_positive_crossing_times()
+        if len(positive_zeros) == 0:
             raise ValueError("no footstrike has been found.")
-
-        return float(time[contacts[0][0]])
+        return float(positive_zeros[0])
 
     def _footstrike_kinematics(self):
         """find the footstrike time using the kinematics algorithm"""
 
         # get the relevant vertical coordinates
         vcoords = {}
-        heel_lbl = f"{self.side.lower()}_heel"
-        heelv = getattr(self, heel_lbl)
-        heelv = heelv[heelv.columns.get_level_values(0)[0]][self.vertical_axis]
-        vcoords[heel_lbl] = heelv.values.astype(float).flatten()
-        meta_lbl = f"{self.side.lower()}_meta_head"
-        meta_dfr = getattr(self, meta_lbl)
-        if meta_dfr is not None:
-            meta_dfr = meta_dfr[meta_dfr.columns.get_level_values(0)[0]]
-            vcoords[meta_lbl] = meta_dfr[self.vertical_axis]
-            vcoords[meta_lbl] = vcoords[meta_lbl].values.astype(float).flatten()
+        for marker in ["heel", "meta_head"]:
+            lbl = f"{self.side.lower()}_{marker}"
+            dfr = getattr(self, lbl)
+            if dfr is not None:
+                dfr = dfr[dfr.columns.get_level_values(0)[0]]
+                vcoords[lbl] = dfr[self.vertical_axis]
+                vcoords[lbl] = vcoords[lbl].values.astype(float).flatten()
 
         # filter the signals and extract the first contact time
         time = self.markers.index.to_numpy()
         fs_time = []
         for val in vcoords.values():
-            mask = self._filter_kinematics(val, time) < self.height_threshold
-            contacts = labsp.continuous_batches(mask)
-            if len(contacts) > 0:
-                fs_time += [time[contacts[0][0]]]
+            val = self._filter_kinematics(val, time)
+            val = val / np.max(val)
+            fsi = np.where(val < self.height_threshold)[0]
+            if len(fsi) > 0:
+                fs_time += [time[fsi[0]]]
 
-        # get output time
-        if len(fs_time) > 0:
-            return float(np.min(fs_time))
-        raise ValueError("no footstrike has been found.")
+        # return
+        if len(fs_time) == 0:
+            raise ValueError("not footstrike has been found")
+        return float(np.min(fs_time))
+
+    def _opposite_footstrike_kinematics(self):
+        """find the opposite footstrike time using the kinematics algorithm"""
+
+        # get the opposite leg
+        noncontact_foot = "left" if self.side == "RIGHT" else "right"
+
+        # get the relevant vertical coordinates
+        vcoords = {}
+        for marker in ["heel", "meta_head"]:
+            lbl = f"{noncontact_foot}_{marker}"
+            dfr = getattr(self, lbl)
+            if dfr is not None:
+                dfr = dfr[dfr.columns.get_level_values(0)[0]]
+                vcoords[lbl] = dfr[self.vertical_axis]
+                vcoords[lbl] = vcoords[lbl].values.astype(float).flatten()
+
+        # filter the signals and extract the first contact time
+        time = self.markers.index.to_numpy()
+        fs_time = []
+        for val in vcoords.values():
+            val = self._filter_kinematics(val, time)
+            val = val / np.max(val)
+            fsi = np.where(val >= self.height_threshold)[0]
+            if len(fsi) > 0 and fsi[-1] + 1 < len(time):
+                fs_time += [time[fsi[-1] + 1]]
+
+        # return
+        if len(fs_time) == 0:
+            raise ValueError("not opposite footstrike has been found")
+        return float(np.min(fs_time))
 
     def _midstance_kinetics(self):
         """find the midstance time using the kinetics algorithm"""
-        if self.grf is None:
-            raise ValueError("no ground reaction force data available.")
-        time = self.grf.index.to_numpy()
-        vgrf = self.grf[self.grf.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis]
-        vgrf = labsp.fillna(vgrf).values.astype(float).flatten()  # type: ignore
-        grff = self._filter_kinetics(vgrf, time)
-        return float(time[np.argmax(grff)])
+
+        # get the anterior-posterior resultant force
+        res = self.resultant_force
+        if res is None:
+            raise ValueError("resultant_force not found")
+        res = res[res.columns[0][0]]
+        time = res.index.to_numpy()
+        res_ap = res[self.antpos_axis].values.astype(float).flatten()
+        res_ap = self._filter_kinetics(res_ap, time)
+        res_ap -= np.nanmean(res_ap)
+
+        # get the dominant frequency
+        fsamp = float(1 / np.mean(np.diff(time)))
+        frq, pwr = labsp.psd(res_ap, fsamp)
+        ffrq = frq[np.argmax(pwr)]
+
+        # find the local minima
+        min_samp = int(fsamp / ffrq / 2)
+        mns = labsp.find_peaks(-res_ap, 0, min_samp)
+        if len(mns) != 2:
+            raise ValueError("no valid mid-stance was found.")
+        pk = np.argmax(res_ap[mns[0] : mns[1]]) + mns[0]
+
+        # get the range and obtain the toe-off
+        # as the last value occurring before the peaks within the
+        # 1 - height_threshold of that range
+        thresh = (1 - self.height_threshold) * res_ap[pk]
+        loc = np.where(res_ap[pk:] < thresh)[0] + pk
+        if len(loc) > 0:
+            return float(time[loc[0]])
+        raise ValueError("no valid mid-stance was found.")
 
     def _midstance_kinematics(self):
         """find the midstance time using the kinematics algorithm"""
-        # get the available markers
-        lbls = [f"{self.side.lower()}_{i}" for i in ["heel", "toe"]]
-        meta_lbl = f"{self.side.lower()}_meta_head"
-        meta_dfr = getattr(self, meta_lbl)
-        if meta_dfr is not None:
-            lbls += [meta_lbl]
 
-        # get the mean vertical signal
+        # get the minimum height across all foot markers
+        vcoord = []
         time = self.markers.index.to_numpy()
-        ref = np.zeros_like(time)
-        for lbl in lbls:
-            val = getattr(self, lbl)
-            val = val[val.columns.get_level_values(0)[0]][self.vertical_axis]
-            val = val.values.astype(float).flatten()
-            ref += self._filter_kinematics(val, time)
-        ref /= len(lbls)
+        for lbl in ["heel", "meta_head", "toe"]:
+            name = f"{self.side.lower()}_{lbl}"
+            val = getattr(self, name)
+            if val is not None:
+                val = val[val.columns[0][0]][self.vertical_axis]
+                val = val.values.astype(float).flatten()
+                val = self._filter_kinematics(val, time)
+                val = val / np.max(val)
+                vcoord += [val]
+        vcoord = np.vstack(np.atleast_2d(*vcoord)).mean(axis=0)
+        idx = np.argmin(vcoord)
+        return float(time[idx])
 
-        # return the time corresponding to the minimum value
-        return float(time[np.argmin(val)])
+    def _opposite_footstrike_kinetics(self):
+        """find the opposite footstrike time using the kinetics algorithm"""
+        positive_zeros = self._get_grf_positive_crossing_times()
+        if len(positive_zeros) < 2:
+            raise ValueError("no opposite footstrike has been found.")
+        return float(positive_zeros[1])
+
+    def _update_events(self):
+        """update gait events"""
+        super()._update_events()
+        if self.algorithm == "kinetics":
+            try:
+                self._opposite_footstrike_s = self._opposite_footstrike_kinetics()
+            except Exception:
+                self._opposite_footstrike_s = np.nan
+        elif self.algorithm == "kinematics":
+            try:
+                self._opposite_footstrike_s = self._opposite_footstrike_kinematics()
+            except Exception:
+                self._opposite_footstrike_s = np.nan
 
     # * constructor
 
@@ -298,11 +421,17 @@ class WalkingTest(gait.GaitTest):
 
     # * methods
 
+    def _sin_fitted(self, arr: np.ndarray):
+        """fit a sine over arr"""
+        rfft = np.fft.rfft(arr - np.mean(arr))
+        pwr = labsp.psd(arr)[1]
+        rfft[pwr < np.max(pwr)] = 0
+        return np.fft.irfft(rfft, len(arr))
+
     def _find_cycles_kinematics(self):
         """find the gait cycles using the kinematics algorithm"""
 
         # get toe-off times
-        tos = []
         time = self.markers.index.to_numpy()
         fsamp = float(1 / np.mean(np.diff(time)))
         for side in ["l", "r"]:
@@ -311,170 +440,176 @@ class WalkingTest(gait.GaitTest):
             arr = self.markers[f"{side}_toe"][self.vertical_axis]
             arr = arr.values.astype(float).flatten()
 
-            # get the minimum reasonable contact time for each step
+            # filter and rescale
             ftoe = self._filter_kinematics(arr, time)
-            frq, pwr = labsp.psd(ftoe, fsamp)
-            ffrq = frq[np.argmax(pwr)]
-            cycle_time = 1 / ffrq
-            dsamples = int(cycle_time * fsamp * 0.1)
+            ftoe = ftoe / np.max(ftoe)
 
-            # get the contact phases
-            mask = ftoe < self.height_threshold
-            contacts = labsp.continuous_batches(mask)
-            contacts = [i for i in contacts if len(i) >= dsamples]
+            # get the minimum reasonable contact time for each step
+            dsamples = int(round(fsamp / 2))
 
-            # get the toe-offs
-            for i in contacts:
-                line = pd.Series({"time": time[i[-1]], "side": side})
-                tos += [pd.DataFrame(line).T]
+            # get the peaks at each cycle
+            pks = labsp.find_peaks(ftoe, 0.5, dsamples)
 
-        # wrap the events
-        if len(tos) == 0:
-            raise ValueError("no toe-offs have been found.")
-        tos = pd.concat(tos, ignore_index=True).sort_values("time")
-        tos.reset_index(inplace=True, drop=True)
+            # for each peak obtain the location of the last sample at the
+            # required height threshold
+            tos = []
+            for pk in pks:
+                idx = np.where(ftoe[:pk] <= self.height_threshold)[0]
+                if len(idx) > 0:
+                    line = pd.Series({"time": time[idx[-1]], "side": side})
+                    tos += [pd.DataFrame(line).T]
 
-        # check the alternation of the steps
-        sides = tos.side.values
-        if not all(s0 != s1 for s0, s1 in zip(sides[:-1], sides[1:])):
-            warnings.warn("Left-Right steps alternation not guaranteed.")
-        for i0, i1 in zip(tos.index[:-1], tos.index[1:]):  # type: ignore
-            t0 = float(tos.time.values[i0])
-            t1 = float(tos.time.values[i1])
-            args = {
-                "frame": self.slice(from_time=t0, to_time=t1),
-                "side": "LEFT" if tos.side.values[i1] == "l" else "RIGHT",
-                "grf_threshold": self.grf_threshold,
-                "height_threshold": self.height_threshold,
-                "algorithm": self.algorithm,
-                "vertical_axis": self.vertical_axis,
-                "antpos_axis": self.antpos_axis,
-            }
-            if self.left_heel is not None:
-                col = self.left_heel.columns.get_level_values(0)[0]
-                args["left_heel"] = col
-            else:
-                args["left_heel"] = None
-            if self.right_heel is not None:
-                col = self.right_heel.columns.get_level_values(0)[0]
-                args["right_heel"] = col
-            else:
-                args["right_heel"] = None
-            if self.left_toe is not None:
-                col = self.left_toe.columns.get_level_values(0)[0]
-                args["left_toe"] = col
-            else:
-                args["left_toe"] = None
-            if self.right_toe is not None:
-                col = self.right_toe.columns.get_level_values(0)[0]
-                args["right_toe"] = col
-            else:
-                args["right_toe"] = None
-            if self.left_meta_head is not None:
-                col = self.left_meta_head.columns.get_level_values(0)[0]
-                args["left_meta_head"] = col
-            else:
-                args["left_meta_head"] = None
-            if self.right_meta_head is not None:
-                col = self.right_meta_head.columns.get_level_values(0)[0]
-                args["right_meta_head"] = col
-            else:
-                args["right_meta_head"] = None
-            if self.grf is not None:
-                args["grf"] = self.grf.columns.get_level_values(0)[0]
-            else:
-                args["grf"] = None
-            self._cycles += [RunningStep(**args)]
+            # wrap the events
+            if len(tos) == 0:
+                raise ValueError("no toe-offs have been found.")
+            tos = pd.concat(tos, ignore_index=True)
+            tos = tos.drop_duplicates()
+            tos = tos.sort_values("time")
+            tos = tos.reset_index(drop=True)
+
+            # check the alternation of the steps
+            for i0, i1 in zip(tos.index[:-1], tos.index[1:]):  # type: ignore
+                t0 = float(tos.time.values[i0])
+                t1 = float(tos.time.values[i1])
+                args = {
+                    "frame": self.slice(from_time=t0, to_time=t1),
+                    "side": "LEFT" if tos.side.values[i0] == "l" else "RIGHT",
+                    "grf_threshold": self.grf_threshold,
+                    "height_threshold": self.height_threshold,
+                    "algorithm": self.algorithm,
+                    "vertical_axis": self.vertical_axis,
+                    "antpos_axis": self.antpos_axis,
+                }
+
+                if self.left_heel is not None:
+                    col = self.left_heel.columns.get_level_values(0)[0]
+                    args["left_heel"] = col
+
+                if self.right_heel is not None:
+                    col = self.right_heel.columns.get_level_values(0)[0]
+                    args["right_heel"] = col
+
+                if self.left_toe is not None:
+                    col = self.left_toe.columns.get_level_values(0)[0]
+                    args["left_toe"] = col
+
+                if self.right_toe is not None:
+                    col = self.right_toe.columns.get_level_values(0)[0]
+                    args["right_toe"] = col
+
+                if self.left_meta_head is not None:
+                    col = self.left_meta_head.columns.get_level_values(0)[0]
+                    args["left_meta_head"] = col
+
+                if self.right_meta_head is not None:
+                    col = self.right_meta_head.columns.get_level_values(0)[0]
+                    args["right_meta_head"] = col
+
+                if self.resultant_force is not None:
+                    args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
+
+                self._cycles += [WalkingStride(**args)]  # type: ignore
+
+        # sort the cycles
+        cycle_index = np.argsort([i.init_s for i in self.cycles])
+        self._cycles = [self.cycles[i] for i in cycle_index]
 
     def _find_cycles_kinetics(self):
         """find the gait cycles using the kinetics algorithm"""
-        if self.grf is None or self.cop is None:
-            raise ValueError("no ground reaction force data available.")
 
-        # get the grf and the latero-lateral COP
-        time = self.grf.index.to_numpy()
-        axs = [self.vertical_axis, self.antpos_axis]
-        axs = [i for i in ["X", "Y", "Z"] if i not in axs]
-        mlc = self.cop[self.cop.columns.get_level_values(0)[0]].loc[:, axs]
-        mlc = mlc.values.astype(float).flatten()
-        grf = self.grf[self.grf.columns.get_level_values(0)[0]]
-        grf = grf[self.vertical_axis].values.astype(float).flatten()
-        grff = self._filter_kinetics(grf, time)
-        mlcf = self._filter_kinetics(mlc, time)
+        # get the anterior-posterior resultant force
+        res = self.resultant_force
+        if res is None:
+            raise ValueError("resultant_force not found")
+        res = res[res.columns[0][0]]
+        time = res.index.to_numpy()
+        res_ap = res[self.antpos_axis].values.astype(float).flatten()
+        res_ap = self._filter_kinetics(res_ap, time)
+        res_ap -= np.nanmean(res_ap)
 
-        # check if there are flying phases
-        flights = labsp.continuous_batches(grff <= self.grf_threshold)
-        if len(flights) > 0 and flights[0][0] == 0:
-            flights = flights[1:]
+        # get the dominant frequency
+        fsamp = float(1 / np.mean(np.diff(time)))
+        frq, pwr = labsp.psd(res_ap, fsamp)
+        ffrq = frq[np.argmax(pwr)]
 
-        # in case of positive contacts we have a running test
-        if len(flights) == 0:
-            raise ValueError("No flight phases have been found on data.")
+        # find peaks
+        min_samp = int(fsamp / ffrq / 2)
+        pks = labsp.find_peaks(res_ap, 0, min_samp)
 
-        # get the toe-offs
-        tos = [i[0] for i in flights]
+        # for each peak pair get the range and obtain the toe-off
+        # as the last value occurring before the peaks within the
+        # 1 - height_threshold of that range
+        toi = []
+        for pk in pks:
+            thresh = (1 - self.height_threshold) * res_ap[pk]
+            loc = np.where(res_ap[:pk] < thresh)[0]
+            if len(loc) > 0:
+                toi += [loc[-1]]
 
-        # get the mean latero-lateral position of each contact
-        pos = [np.mean(mlcf[i]) for i in flights]
+        # get the latero-lateral centre of pressure
+        cop = self.centre_of_pressure
+        if cop is None:
+            raise ValueError("centre_of_pressure not found")
+        cop = cop[cop.columns[0][0]]
+        known_axes = [self.vertical_axis, self.antpos_axis]
+        ml_axis = [i for i in cop.columns if i[0] not in known_axes]
+        cop_ml = cop[ml_axis].values.astype(float).flatten()
+        cop_ml = self._filter_kinetics(cop_ml, time)
+        cop_ml -= np.nanmean(cop_ml)
 
-        # get the mean value of alternated contacts and set the step sides
-        # accordingly
-        evens = np.mean(pos[0:-1:2])
-        odds = np.mean(pos[1:-1:2])
-        sides = []
-        for i in np.arange(len(pos)):
-            if evens > odds:
-                sides += ["LEFT" if i % 2 == 0 else "RIGHT"]
-            else:
-                sides += ["LEFT" if i % 2 != 0 else "RIGHT"]
+        # get the sin function best fitting the cop_ml
+        sin_ml = self._sin_fitted(cop_ml)
 
-        for to, ed, side in zip(tos[:-1], tos[1:], sides):
-            t0 = float(time[to])
-            t1 = float(time[ed])
-            args = {
-                "frame": self.slice(from_time=t0, to_time=t1),
-                "side": side,
-                "grf_threshold": self.grf_threshold,
-                "height_threshold": self.height_threshold,
-                "algorithm": self.algorithm,
-                "vertical_axis": self.vertical_axis,
-                "antpos_axis": self.antpos_axis,
-            }
-            if self.left_heel is not None:
-                col = self.left_heel.columns.get_level_values(0)[0]
-                args["left_heel"] = col
-            else:
-                args["left_heel"] = None
-            if self.right_heel is not None:
-                col = self.right_heel.columns.get_level_values(0)[0]
-                args["right_heel"] = col
-            else:
-                args["right_heel"] = None
-            if self.left_toe is not None:
-                col = self.left_toe.columns.get_level_values(0)[0]
-                args["left_toe"] = col
-            else:
-                args["left_toe"] = None
-            if self.right_toe is not None:
-                col = self.right_toe.columns.get_level_values(0)[0]
-                args["right_toe"] = col
-            else:
-                args["right_toe"] = None
-            if self.left_meta_head is not None:
-                col = self.left_meta_head.columns.get_level_values(0)[0]
-                args["left_meta_head"] = col
-            else:
-                args["left_meta_head"] = None
-            if self.right_meta_head is not None:
-                col = self.right_meta_head.columns.get_level_values(0)[0]
-                args["right_meta_head"] = col
-            else:
-                args["right_meta_head"] = None
-            if self.grf is not None:
-                args["grf"] = self.grf.columns.get_level_values(0)[0]
-            else:
-                args["grf"] = None
-            self._cycles += [RunningStep(**args)]
+        # get the mean latero-lateral position of each toe-off interval
+        cnt = [np.arange(i, j + 1) for i, j in zip(toi[:-1], toi[1:])]
+        pos = [np.nanmean(sin_ml[i]) for i in cnt]
+
+        # get the sides
+        sides = ["LEFT" if i > 0 else "RIGHT" for i in pos]
+
+        # generate the steps
+        toi_evens = toi[0:-1:2]
+        sides_evens = sides[0:-1:2]
+        toi_odds = toi[1:-1:2]
+        sides_odds = sides[1:-1:2]
+        for ti, si in zip([toi_evens, toi_odds], [sides_evens, sides_odds]):
+            for to, ed, side in zip(ti[:-1], ti[1:], si):
+                t0 = float(time[to])
+                t1 = float(time[ed])
+                args = {
+                    "frame": self.slice(from_time=t0, to_time=t1),
+                    "side": side,
+                    "grf_threshold": self.grf_threshold,
+                    "height_threshold": self.height_threshold,
+                    "algorithm": self.algorithm,
+                    "vertical_axis": self.vertical_axis,
+                    "antpos_axis": self.antpos_axis,
+                }
+                if self.left_heel is not None:
+                    col = self.left_heel.columns.get_level_values(0)[0]
+                    args["left_heel"] = col
+                if self.right_heel is not None:
+                    col = self.right_heel.columns.get_level_values(0)[0]
+                    args["right_heel"] = col
+                if self.left_toe is not None:
+                    col = self.left_toe.columns.get_level_values(0)[0]
+                    args["left_toe"] = col
+                if self.right_toe is not None:
+                    col = self.right_toe.columns.get_level_values(0)[0]
+                    args["right_toe"] = col
+                if self.left_meta_head is not None:
+                    col = self.left_meta_head.columns.get_level_values(0)[0]
+                    args["left_meta_head"] = col
+                if self.right_meta_head is not None:
+                    col = self.right_meta_head.columns.get_level_values(0)[0]
+                    args["right_meta_head"] = col
+                if self.resultant_force is not None:
+                    args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
+                self._cycles += [WalkingStride(**args)]  # type: ignore
+
+        # sort the cycles
+        idx = np.argsort([i.init_s for i in self._cycles])
+        self._cycles = [self._cycles[i] for i in idx]
 
     def _make_summary_plot(
         self,
@@ -525,7 +660,13 @@ class WalkingTest(gait.GaitTest):
         cmap = colors.qualitative.Plotly
         figures["phases"] = go.FigureWidget()
         sides = ["RIGHT", "LEFT"]
-        events = ["flight", "loadingresponse", "propulsion", "cycle"]
+        events = [
+            "swing",
+            "first_double_support",
+            "single_support",
+            "second_double_support",
+            "cycle",
+        ]
         for i, param in enumerate(events):
             arr = []
             txt = []
@@ -552,7 +693,7 @@ class WalkingTest(gait.GaitTest):
         figures["phases"].update_layout(
             barmode="stack",
             template="plotly_white",
-            title="Running Phases",
+            title="Walking Phases",
             legend_title_text="Phase",
         )
 
@@ -583,6 +724,154 @@ class WalkingTest(gait.GaitTest):
             figures[param + " imbalance"] = go.FigureWidget(fig)
 
         return figures
+
+    def _make_results_plot(self):
+        """
+        generate a view with allowing to understand the detected gait cycles
+        """
+        # get the data to be plotted
+        data = []
+        labels = [
+            "resultant_force",
+            "centre_of_pressure",
+            "left_heel",
+            "right_heel",
+            "left_toe",
+            "right_toe",
+            "left_meta_head",
+            "right_meta_head",
+        ]
+        for label in labels:
+            dfr = getattr(self, label.lower())
+            if dfr is not None:
+                if label in ["resultant_force"]:
+                    ffun = self._filter_kinetics
+                    yaxes = [self.vertical_axis, self.antpos_axis]
+                elif label in ["centre_of_pressure"]:
+                    ffun = self._filter_kinetics
+                    yaxes = [self.vertical_axis, self.antpos_axis]
+                    yaxes = [i for i in ["X", "Y", "Z"] if i not in yaxes]
+                    yaxes += [self.antpos_axis]
+                else:
+                    ffun = self._filter_kinematics
+                    yaxes = [self.vertical_axis]
+                for yaxis in yaxes:
+                    arr = dfr[dfr.columns.get_level_values(0)[0]]
+                    arr = arr[yaxis].values.astype(float).flatten()
+                    time = dfr.index.to_numpy()
+                    filt = ffun(arr, time)
+                    if label in ["centre_of_pressure"]:
+                        arr -= np.nanmean(arr)
+                        filt -= np.nanmean(filt)
+                    elif label not in ["resultant_force", "centre_of_pressure"]:
+                        arr -= np.nanmin(arr)
+                    unit = dfr.columns.to_list()[0][-1]
+                    row = {"Raw": arr, "Filtered": filt, "Time": time, "Unit": unit}
+                    row = pd.DataFrame(row)
+                    row = row.melt(
+                        id_vars=["Time", "Unit"],
+                        var_name="Type",
+                        value_name="Value",
+                    )
+                    if yaxis == self.vertical_axis:
+                        orientation = "VERTICAL"
+                    elif yaxis == self.antpos_axis:
+                        orientation = "ANTERIOR-POSTERIOR"
+                    else:
+                        orientation = "LATERO-LATERAL"
+                    source = f'{label.upper().replace("_", " ")}<br>'
+                    source += f"({orientation})"
+                    row.insert(0, "Source", np.tile(source, row.shape[0]))
+                    data.append(row)
+        data = pd.concat(data, ignore_index=True)
+        labels, units = np.unique(
+            data[["Source", "Unit"]].values.astype(str),
+            axis=0,
+        ).T
+
+        # generate the output figure
+        fig = px.line(
+            data_frame=data,
+            x="Time",
+            y="Value",
+            color="Type",
+            facet_row="Source",
+            template="simple_white",
+            title=self.name,
+            height=300 * len(labels),
+        )
+
+        # update the layout
+        fig.update_xaxes(showticklabels=True)
+        fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+        fig.update_traces(opacity=0.5)
+        fig.update_yaxes(matches=None)
+
+        # add cycles and thresholds
+        time = self.to_dataframe().index.to_numpy()[[0, -1]]
+        for row in np.arange(len(labels)):
+
+            # update the y-axis label
+            ref = fig.layout.annotations[row].text  # type: ignore
+            unit = str(units[np.where(labels == ref)[0][0]])
+            fig.update_yaxes(title_text=unit, row=row + 1)
+
+            # get the y-axis range
+            yaxis = "y" + ("" if row == 0 else str(row + 1))
+            traces = [i for i in fig.data if i.yaxis == yaxis]  # type: ignore
+            minv = np.min([np.nanmin(i.y) for i in traces])  # type: ignore
+            maxv = np.max([np.nanmax(i.y) for i in traces])  # type: ignore
+            y_range = [minv, maxv]
+
+            # plot the cycles
+            for i, cycle in enumerate(self.cycles):
+                color = "purple" if cycle.side == "LEFT" else "green"
+                styles = ["solid", "dash", "dot", "dashdot"]
+                for n, event in enumerate(cycle.absolute_time_events):
+                    time_event = getattr(cycle, event)
+                    fig.add_trace(
+                        row=row + 1,
+                        col=1,
+                        trace=go.Scatter(
+                            x=[time_event, time_event],
+                            y=y_range,
+                            line_dash=styles[n % len(styles)],
+                            line_color=color,
+                            opacity=0.3,
+                            mode="lines",
+                            name=f"{event} ({cycle.side})",
+                            showlegend=bool((row == 0) & (i < 2)),
+                            legendgroup=f"{event} ({cycle.side})",
+                        ),
+                    )
+
+            # plot the thresholds
+            if "CENTRE OF PRESSURE" in ref:
+                thres = 0
+            elif "RESULTANT FORCE" in ref:
+                if "VERTICAL" not in ref:
+                    thres = 0
+                else:
+                    thres = np.nan
+            else:
+                thres = self.height_threshold
+            thres = float(thres * np.max(y_range))
+            fig.add_trace(
+                row=row + 1,
+                col=1,
+                trace=go.Scatter(
+                    x=time,
+                    y=[thres, thres],
+                    mode="lines",
+                    line_dash="dot",
+                    line_color="black",
+                    opacity=0.3,
+                    name="Threshold",
+                    showlegend=bool(row == 0),
+                ),
+            )
+
+        return fig
 
     # * constructor
 

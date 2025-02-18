@@ -365,7 +365,7 @@ def freedman_diaconis_bins(
 
 
 def padwin(
-    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
+    arr: np.ndarray,
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -464,7 +464,7 @@ def padwin(
 
 
 def mean_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
+    arr: np.ndarray,
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -560,7 +560,7 @@ def mean_filt(
 
 
 def median_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
+    arr: np.ndarray,
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -642,7 +642,7 @@ def median_filt(
 
 
 def rms_filt(
-    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
+    arr: np.ndarray,
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
@@ -1070,6 +1070,7 @@ def residual_analysis(
     # get the optimal crossing over point
     frq = np.linspace(0, fmax, fnum + 1)[1:].astype(float)
     res = np.array([np.sum((arr - ffun(arr, i)) ** 2) for i in frq])
+    res = res.astype(float)
     iopt = crossovers(res, nseg, minsamp)[0][-1]
     fopt = float(frq[iopt])
 
@@ -1205,10 +1206,13 @@ def crossovers(
 
     # get the fitting slopes
     slopes = [np.arange(i0, i1) for i0, i1 in zip(crs[:-1], crs[1:])]
-    slopes = [np.polyfit(i, arr[i], 1).astype(float) for i in slopes]
+    slopes = [
+        np.polyfit(i, arr[i].astype(float), 1).astype(float).tolist() for i in slopes
+    ]
+    slopes = np.array(slopes).astype(float)
 
     # return the crossovers
-    return crs[1:-1].astype(int).tolist(), slopes
+    return crs[1:-1].astype(int), slopes
 
 
 def psd(

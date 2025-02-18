@@ -64,9 +64,8 @@ def test_walk():
     files = [i for i in get_files(path, ".tdf", False) if "walk_test" in i]
     for file in files:
         print(f"\nTEST {file}")
-        frame = StateFrame.from_tdf_file(file)
-        test = WalkingTest(
-            frame=frame,
+        test = WalkingTest.from_tdf_file(
+            file=file,
             algorithm="kinematics",
             left_heel="l_heel",
             right_heel="r_heel",
@@ -76,24 +75,32 @@ def test_walk():
             right_meta_head="r_met",
             grf="fRes",
         )
-        for algorithm in ["kinetics", "kinematics"]:
+        for algorithm in ["kinematics", "kinetics"]:
             test.set_algorithm(algorithm)  # type: ignore
+            name = file.rsplit(sep, 1)[-1].rsplit(".", 1)[0]
+            figpath = join(path, "results", name)
+            makedirs(figpath, exist_ok=True)
+
+            # summary plots
             fig, dfr = test.summary()
             for key, val in fig.items():
                 title = val.layout.title.text + f" ({test.algorithm})"  # type: ignore
                 val.update_layout(title=title)
-                val.show()
+                val.write_html(join(figpath, title + ".html"))
+
+            # results plot
             fig, dfr = test.results()
-            title = fig.layout.title.text + f" ({test.algorithm})"  # type: ignore
+            title = " ".join([fig.layout.title.text + f" ({test.algorithm})"])  # type: ignore
             fig.update_layout(title=title)
-            fig.show()
+            fig.write_html(join(figpath, title + ".html"))
+
     print("WALKING TEST COMPLETED")
 
 
 def test_gaits():
     """test the gaittests module"""
-    test_run()
     test_walk()
+    test_run()
 
 
 if __name__ == "__main__":
