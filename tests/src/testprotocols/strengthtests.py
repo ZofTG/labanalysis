@@ -5,9 +5,6 @@
 
 import sys
 from os.path import dirname, join
-from os import remove
-
-import labio
 
 sys.path += [dirname(dirname(dirname(dirname(__file__))))]
 
@@ -26,7 +23,7 @@ def test_isokinetic_1rm():
     tests = []
     for file in files:
         side = "Right" if file.split("_")[-1].split(".")[0] == "dx" else "Left"
-        prod = labio.LegPressREV.from_file(file)
+        prod = LegPressREV.from_file(file)
         tests += [Isokinetic1RMTest(prod, side)]
     battery = Isokinetic1RMTestBattery(*tests)
     battery.summary_plots.show()

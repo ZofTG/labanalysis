@@ -41,7 +41,7 @@ class Isokinetic1RMTestBattery(TestBattery):
         """return a set of plotly FigureWidget for each relevant metric"""
 
         # get 1RM data
-        tab = self.summary_table
+        tab = super().summary()[1]
         tab_cols = ["Side", "Product", "Parameter", "Unit", "Repetition", "Max"]
         tab = tab[tab_cols].copy()
         rm1 = tab.loc[tab.Parameter == "1RM"]
@@ -57,7 +57,7 @@ class Isokinetic1RMTestBattery(TestBattery):
             rm1.loc[idx, "Repetition"] = rep
 
         # get track data
-        res = self.results_table
+        res = super().results()[1]
         res.columns = pd.Index([i[0] for i in res.columns])
         tracks = []
         for (prod, side, rep), dfr in res.groupby(["Product", "Side", "Repetition"]):
