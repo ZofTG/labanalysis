@@ -14,7 +14,7 @@ import plotly.express as px
 
 from ... import signalprocessing as labsp
 from ...plotting.plotly import bars_with_normative_bands
-from ..frames import StateFrame
+from ...frames import StateFrame
 from . import gait
 
 __all__ = ["RunningStep", "RunningTest"]

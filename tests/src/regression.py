@@ -1,14 +1,13 @@
-"""rslib.regression testing module"""
+"""regression library testing module"""
 
 #! IMPORTS
 
 
 import sys
 from os.path import dirname
-from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 sys.path += [dirname(dirname(dirname(__file__)))]
 
@@ -21,7 +20,7 @@ __all__ = ["test_regression"]
 
 
 def _add_noise(
-    arr: np.ndarray[Any, np.dtype[np.float64 | np.int_]],
+    arr: np.ndarray,
     noise: float,
 ):
     """
@@ -43,7 +42,7 @@ def _add_noise(
     return arr + np.random.randn(*arr.shape) * np.std(arr) * noise
 
 
-def test_regression():
+def test_ols():
     """test the regression module"""
     x = np.linspace(0, 100, 101)
 
@@ -55,12 +54,6 @@ def test_regression():
     z = model.predict(x).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
     print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
-    plt.close()
-    plt.plot(x, y, label="RAW")
-    plt.plot(x, z, "r--", label="FITTED")
-    plt.legend()
-    plt.title("MULTISEGMENT REGRESSION")
-    plt.show()
 
     # Log regression
     print("\nTESTING LOG REGRESSION")
@@ -70,12 +63,6 @@ def test_regression():
     z = model.predict(x + 1).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
     print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
-    plt.close()
-    plt.plot(x + 1, y, label="RAW")
-    plt.plot(x + 1, z, "r--", label="FITTED")
-    plt.legend()
-    plt.title("LOG REGRESSION")
-    plt.show()
 
     # polynomial regression
     print("\nTESTING POLYNOMIAL REGRESSION")
@@ -85,12 +72,6 @@ def test_regression():
     z = model.predict(x).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
     print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
-    plt.close()
-    plt.plot(x, y, label="RAW")
-    plt.plot(x, z, "r--", label="FITTED")
-    plt.legend()
-    plt.title("POLYNOMIAL REGRESSION")
-    plt.show()
 
     # power regression
     print("\nTESTING POWER REGRESSION")
@@ -100,12 +81,37 @@ def test_regression():
     z = model.predict(x).values.flatten()
     rmse = np.nanmean((y - z) ** 2) ** 0.5
     print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
-    plt.close()
-    plt.plot(x, y, label="RAW")
-    plt.plot(x, z, "r--", label="FITTED")
-    plt.legend()
-    plt.title("POWER REGRESSION")
-    plt.show()
+
+
+def test_geometry():
+    """test the geometrical objects"""
+
+    # line2d
+    coefs = pd.Series({"A": 1, "B": 2, "C": 3})
+    x = np.linspace(0, 100, 101)
+    y = (-coefs.C - coefs.A * x) / coefs.B
+    model = Line2D(has_intercept=True).fit(x=x, y=y)
+    betas = model.betas
+    print("Line2D")
+    print(f"True coefs: {coefs.to_dict()}")
+    print(f"Predicted coefs: {betas}")
+
+    # line3d
+    coefs = pd.Series({"A": 1, "B": 2, "C": 3, "D": 4})
+    x = np.linspace(0, 100, 101)
+    y = np.linspace(0, 200, 101)
+    z = (-coefs.A * x - coefs.B * y - coefs.D) / coefs.C
+    model = Line3D(has_intercept=True).fit(x=x, y=y, z=z)
+    betas = model.betas
+    print("Line3D")
+    print(f"True coefs: {coefs.to_dict()}")
+    print(f"Predicted coefs: {betas}")
+
+
+def test_regression():
+    """test the regression library"""
+    test_geometry()
+    test_ols()
 
 
 if __name__ == "__main__":

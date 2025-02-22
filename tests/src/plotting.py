@@ -5,6 +5,7 @@
 
 import sys
 from os.path import dirname
+
 import numpy as np
 
 sys.path += [dirname(dirname(dirname(__file__)))]
@@ -27,7 +28,8 @@ def test_plotting():
     std = 0.3
     yarr = (xarr * beta1 + beta0) + yarr * std
     clrs = np.array(["M" if i % 2 == 0 else "F" for i in np.arange(len(xarr))])
-    fig = plot_comparisons_plotly(xarr, yarr, clrs, "XLAB", "YLAB", parametric=True)
+    fig = plot_comparisons(xarr, yarr, clrs, "XLAB", "YLAB", parametric=False)
+    assert fig is not None, "fig is None"
     fig.show()
 
 

@@ -1,5 +1,3 @@
-labio @ git+https://github.com/ZofTG/labio.git
 scikit-learn
-matplotlib
 plotly
-ipywidgets
+sympy

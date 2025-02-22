@@ -17,7 +17,7 @@ from ...constants import (
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
 from ..base import LabTest
-from ..frames import StateFrame
+from ...frames import StateFrame
 
 
 #! CONSTANTS

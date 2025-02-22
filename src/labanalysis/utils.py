@@ -21,15 +21,23 @@ split_data
 #! IMPORTS
 
 
-import os
+from os.path import exists, join
+from os import walk
+from tkinter import Tk
 from typing import Any
 
 import numpy as np
+import pandas as pd
+
+from .messages import askyesno
 
 __all__ = [
     "magnitude",
     "get_files",
     "split_data",
+    "check_entry",
+    "check_writing_file",
+    "assert_file_extension",
 ]
 
 
@@ -98,10 +106,10 @@ def get_files(
     out = []
 
     # surf the path by the os. walk function
-    for root, _, files in os.walk(path):
+    for root, _, files in walk(path):
         for obj in files:
             if obj[-len(extension) :] == extension:
-                out += [os.path.join(root, obj)]
+                out += [join(root, obj)]
 
         # handle the subfolders
         if not check_subfolders:
@@ -172,3 +180,110 @@ def split_data(
 
     # aggregate
     return {i: np.concatenate(v) for i, v in dss.items()}
+
+
+def check_entry(
+    entry: object,
+    mask: np.ndarray,
+):
+    """
+    check a given object to be a pandas DataFrame with the "mask" structure of
+    indices and columns.
+
+    Parameters
+    ----------
+    entry : object
+        the object to be checked
+
+    mask : ndarray
+        the column mask to be controlled. The mask has to match all the columns
+        contained by levels at index > 1.
+
+    Raises
+    ------
+    TypeError
+        "entry must be a pandas DataFrame."
+        In case the entry is not a pandas.DataFrame.
+
+    TypeError
+        "entry columns must be a pandas MultiIndex."
+        In case the entry columns are not a pandas.MultiIndex instance.
+
+    TypeError
+        "entry columns must contain {mask}."
+        In case the entry columns does not match with the provided mask.
+
+    TypeError
+        "entry index must be a pandas Index."
+        In case the index of the entry is not a pandas.Index
+    """
+    if not isinstance(entry, pd.DataFrame):
+        raise TypeError("entry must be a pandas DataFrame.")
+    if not isinstance(entry.columns, pd.MultiIndex):
+        raise TypeError("entry columns must be a pandas MultiIndex.")
+    umask = np.unique(mask.astype(str), axis=0)
+    for lbl in np.unique(entry.columns.get_level_values(0)):
+        imask = entry[lbl].columns.to_frame().values.astype(str)
+        imask = np.unique(imask, axis=0)
+        if not (imask == umask).all():
+            raise TypeError(f"entry columns must contain {mask}.")
+    if not isinstance(entry.index, pd.Index):
+        raise TypeError("entry index must be a pandas Index.")
+
+
+def check_writing_file(
+    file: str,
+):
+    """
+    check the provided filename and rename it if required.
+
+    Parameters
+    ----------
+    file : str
+        the file path
+
+    Returns
+    -------
+    filename: str
+        the file (renamed if required).
+    """
+    ext = file.rsplit(".", 1)[-1]
+    filename = file
+    while exists(filename):
+        msg = f"The {file} file already exist.\nDo you want to replace it?"
+        root = Tk()
+        root.wm_attributes("-topmost", 1)
+        root.withdraw()
+        yes = askyesno(title="Replace", message=msg)
+        root.destroy()
+        if yes:
+            return filename
+        filename = file.replace(f".{ext}", f"_1.{ext}")
+    return filename
+
+
+def assert_file_extension(
+    path: str,
+    ext: str,
+):
+    """
+    check the validity of the input path file to be a str with the provided
+    extension.
+
+    Parameters
+    ----------
+    path : str
+        the object to be checked
+
+    ext : str
+        the target file extension
+
+    Raises
+    ------
+    err: AsserttionError
+        in case the file is not a str or it does not exist or it does not have
+        the provided extension.
+    """
+    assert isinstance(path, str), "path must be a str object."
+    msg = path + f' must have "{ext}" extension.'
+    assert path.rsplit(".", 1)[-1] == f"{ext}", msg

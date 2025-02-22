@@ -16,7 +16,7 @@ from ...plotting.plotly import bars_with_normative_bands
 from ... import signalprocessing as sp
 from ...constants import G
 from ..base import LabTest
-from ..frames import StateFrame
+from ...frames import StateFrame
 from ..posturaltests.upright import UprightStance
 
 __all__ = ["SquatJump", "SquatJumpTest"]
@@ -876,7 +876,8 @@ class SquatJumpTest(LabTest):
                 idx = normative_intervals.Parameter == str(param)
                 norms = normative_intervals.loc[idx]
                 for row in np.arange(norms.shape[0]):
-                    rnk, low, upp, clr = norms.iloc[row].values.flatten()[-4:]
+                    vals = norms.iloc[row].values.astype(float).flatten()[-4:]
+                    rnk, low, upp, clr = vals
                     val = dfr.Value.values.astype(float)
                     if val >= low and val <= upp:
                         out.loc[dfr.index, "Rank"] = rnk

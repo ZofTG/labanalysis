@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from ...constants import G
 from ...plotting.plotly import bars_with_normative_bands
-from ..frames import StateFrame
+from ...frames import StateFrame
 from ..posturaltests.upright import UprightStance
 from .counter_movement_jump import CounterMovementJump, CounterMovementJumpTest
 

@@ -8,7 +8,7 @@ import pandas as pd
 from ...constants import G
 from os.path import dirname, join
 
-from ..frames import StateFrame
+from ...frames import StateFrame
 from .upright import UprightStance
 from ..base import LabTest
 from plotly.subplots import make_subplots

@@ -100,7 +100,27 @@ def plot_comparisons(
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
+                # entrywidth=15,
+                # entrywidthmode="fraction",
+                y=1.15,
+                xanchor="right",
+                x=1,
+            ),
+            legend2=dict(
+                orientation="h",
+                yanchor="bottom",
+                # entrywidth=15,
+                # entrywidthmode="fraction",
                 y=1.1,
+                xanchor="right",
+                x=1,
+            ),
+            legend3=dict(
+                orientation="h",
+                yanchor="bottom",
+                # entrywidth=15,
+                # entrywidthmode="fraction",
+                y=1.05,
                 xanchor="right",
                 x=1,
             ),
@@ -120,23 +140,6 @@ def plot_comparisons(
     colmap = np.unique(np.array(color).flatten().astype(str))
     colmap = [(i, color == i, k) for i, k in zip(colmap, pmap)]
 
-    # add the scatter points to the regression plot
-    for name, idx, col in colmap:
-        fig.add_trace(
-            row=row,
-            col=1,
-            trace=go.Scatter(
-                x=xarr[idx],
-                y=yarr[idx],
-                mode="markers",
-                marker_color=col,
-                showlegend=color is not None and showlegend,
-                opacity=0.5,
-                name=name,
-                legendgroup=name,
-            ),
-        )
-
     # add the identity line to the regression plot
     ymin = min(np.min(yarr), np.min(xarr))
     ymax = max(np.max(yarr), np.max(xarr))
@@ -150,36 +153,240 @@ def plot_comparisons(
             line_dash="dash",
             line_color="black",
             name="IDENTITY LINE",
-            legendgroup="IDENTITY LINE",
+            # legendgroup="IDENTITY LINE",
             showlegend=showlegend,
+            legend="legend",
         ),
     )
 
-    # add the fitting metrics
-    rmse = np.mean((yarr - xarr) ** 2) ** 0.5
-    mape = np.mean(abs(yarr - xarr) / xarr) * 100
-    r2 = np.corrcoef(xarr, yarr)[0][1] ** 2
-    tt_rel = ttest_rel(xarr, yarr)
-    tt_ind = ttest_ind(xarr, yarr)
-    txt = [f"RMSE = {rmse:0.4f}"]
-    txt += [f"MAPE = {mape:0.1f} %"]
-    txt += [f"R<sup>2</sup> = {r2:0.2f}"]
-    txt += [
-        f"Paired T<sub>df={tt_rel.df:0.0f}</sub> = "  # type: ignore
-        + f"{tt_rel.statistic:0.2f} (p={tt_rel.pvalue:0.3f})"  # type: ignore
-    ]
-    txt += [
-        f"Indipendent T<sub>df={tt_ind.df:0.0f}</sub> = "  # type: ignore
-        + f"{tt_ind.statistic:0.2f} (p={tt_ind.pvalue:0.3f})"  # type: ignore
-    ]
-    txt = "<br>".join(txt)
+    # add the scatter points to the regression plot and prepare the textbox
+    text = []
+    loa_lbl = f"{confidence * 100:0.0f}% LIMITS OF AGREEMENT"
+    eps = 1e-15
+    x_rng2 = (xarr + yarr) / 2
+    x_rng2 = [np.min(x_rng2), np.max(x_rng2)]
+    x_diff = abs(np.diff(x_rng2))[0]
+    x_rng2 = [x_rng2[0] - x_diff * 0.05, x_rng2[1] + x_diff * 0.05]
+    for n, (name, idx, col) in enumerate(colmap):
+        xarri = xarr[idx]
+        yarri = yarr[idx]
 
+        # plot the true vs predicted values in the regression plot
+        fig.add_trace(
+            row=row,
+            col=1,
+            trace=go.Scatter(
+                x=xarri,
+                y=yarri,
+                mode="markers",
+                marker_color=col,
+                showlegend=color is not None and showlegend,
+                opacity=0.5,
+                name=name,
+                # legendgroup=name,
+                legend=f"legend{n + 2}",
+            ),
+        )
+
+        # add the fitting metrics
+        rmse = np.mean((yarri - xarri) ** 2) ** 0.5
+        mape = np.mean((abs(yarri - xarri) + eps) / (xarri + eps)) * 100
+        r2 = np.corrcoef(xarri, yarri)[0][1] ** 2
+        tt_rel = ttest_rel(xarri, yarri)
+        tt_ind = ttest_ind(xarri, yarri)
+        txt = [name + ":"]
+        txt += [f"&#9;&#9;&#9;&#9;# = {len(xarri)}"]
+        txt += [f"&#9;&#9;&#9;&#9;RMSE = {rmse:0.4f}"]
+        txt += [f"&#9;&#9;&#9;&#9;MAPE = {mape:0.1f} %"]
+        txt += [f"&#9;&#9;&#9;&#9;R<sup>2</sup> = {r2:0.2f}"]
+        txt += [
+            f"&#9;&#9;&#9;&#9;Paired T<sub>df={tt_rel.df:0.0f}</sub> = "  # type: ignore
+            + f"{tt_rel.statistic:0.2f} (p={tt_rel.pvalue:0.3f})"  # type: ignore
+        ]
+        txt += [
+            f"&#9;&#9;&#9;&#9;Indipendent T<sub>df={tt_ind.df:0.0f}</sub> = "  # type: ignore
+            + f"{tt_ind.statistic:0.2f} (p={tt_ind.pvalue:0.3f})"  # type: ignore
+        ]
+        txt = "<br>".join(txt)
+        text += [txt]
+
+        # plot the data on the bland-altman subplot
+        means = (xarri + yarri) / 2
+        diffs = yarri - xarri
+        if not parametric:
+            ref = (1 - confidence) / 2
+            loalow, loasup, bias = np.quantile(diffs, [ref, 1 - ref, 0.5])
+        else:
+            bias = np.mean(diffs)
+            scale = np.std(diffs)
+            loalow, loasup = norm.interval(confidence, loc=bias, scale=scale)
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=means,
+                y=diffs,
+                mode="markers",
+                marker_color=col,
+                showlegend=False,
+                opacity=0.5,
+                name=name,
+                # legendgroup=name,
+                legend=f"legend{n + 2}",
+            ),
+        )
+
+        # plot the trend of the errors
+        f_bias = np.polyfit(means, diffs, 1)
+        y_bias = np.polyval(f_bias, x_rng2)
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=x_rng2,
+                y=y_bias,
+                mode="lines",
+                line_color=col,
+                line_dash="dot",
+                name="Trend",
+                opacity=0.7,
+                showlegend=showlegend,
+                legend=f"legend{n + 2}",
+            ),
+        )
+        chrs = np.max([len(str(i).split(".")[0]) + 2 for i in f_bias] + [6])
+        msg = [f"{i:+}" for i in f_bias]
+        msg = f"y = {msg[0][:chrs]}x {msg[1][:chrs]}"
+        fig.add_annotation(
+            row=row,
+            col=2,
+            x=x_rng2[-1],
+            y=y_bias[-1],
+            text=msg,
+            showarrow=False,
+            xanchor="right",
+            yanchor="bottom",
+            standoff=5,
+            align="right",
+            valign="bottom",
+            opacity=0.7,
+            font=dict(
+                family="sans serif",
+                size=12,
+                color=col,
+            ),
+        )
+
+        # plot the bias
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=x_rng2,
+                y=np.tile(bias, len(x_rng2)),
+                name="Bias",
+                line_dash="solid",
+                line_color=col,
+                line_width=1,
+                opacity=0.7,
+                showlegend=showlegend,
+                legend=f"legend{n + 2}",
+                mode="lines",
+            ),
+        )
+        fig.add_annotation(
+            row=row,
+            col=2,
+            x=x_rng2[-1],
+            y=bias,
+            text=f"{bias:0.2f}",
+            showarrow=False,
+            xanchor="left",
+            align="left",
+            opacity=0.7,
+            font=dict(
+                family="sans serif",
+                size=12,
+                color=col,
+            ),
+        )
+
+        # plot the limits of agreement
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=x_rng2,
+                y=[loalow, loalow],
+                mode="lines",
+                line_color=col,
+                line_dash="dashdot",
+                name=loa_lbl,
+                # legendgroup=loa_lbl,
+                opacity=0.3,
+                showlegend=showlegend,
+                legend=f"legend{n + 2}",
+            ),
+        )
+        fig.add_trace(
+            row=row,
+            col=2,
+            trace=go.Scatter(
+                x=x_rng2,
+                y=[loasup, loasup],
+                mode="lines",
+                line_color=col,
+                line_dash="dashdot",
+                name=loa_lbl,
+                # legendgroup=loa_lbl,
+                opacity=0.3,
+                showlegend=False,
+            ),
+        )
+
+        fig.add_annotation(
+            row=row,
+            col=2,
+            x=x_rng2[-1],
+            y=loalow,
+            text=f"{loalow:0.2f}",
+            showarrow=False,
+            xanchor="left",
+            align="left",
+            opacity=0.7,
+            font=dict(
+                family="sans serif",
+                size=12,
+                color=col,
+            ),
+            name=loa_lbl,
+        )
+
+        fig.add_annotation(
+            row=row,
+            col=2,
+            x=x_rng2[-1],
+            y=loasup,
+            text=f"{loasup:0.2f}",
+            showarrow=False,
+            xanchor="left",
+            align="left",
+            opacity=0.7,
+            font=dict(
+                family="sans serif",
+                size=12,
+                color=col,
+            ),
+            name=loa_lbl,
+        )
+
+    # add the fitting metrics to the regression plot
     fig.add_annotation(
         row=row,
         col=1,
         x=ymin,
         y=ymax,
-        text=txt,
+        text="<br>".join(text),
         showarrow=False,
         xanchor="left",
         align="left",
@@ -187,156 +394,6 @@ def plot_comparisons(
         font=dict(family="sans serif", size=12, color="black"),
         bgcolor="white",
         opacity=0.7,
-    )
-
-    # plot the data on the bland-altman subplot
-    means = (xarr + yarr) / 2
-    diffs = yarr - xarr
-    xrng = [np.min(means), np.max(means)]
-    loa_lbl = f"{confidence * 100:0.0f}% LIMITS OF AGREEMENT"
-    if not parametric:
-        ref = (1 - confidence) / 2
-        loalow, loasup, bias = np.quantile(diffs, [ref, 1 - ref, 0.5])
-    else:
-        bias = np.mean(diffs)
-        scale = np.std(diffs)
-        loalow, loasup = norm.interval(confidence, loc=bias, scale=scale)
-    for name, idx, col in colmap:
-        fig.add_trace(
-            row=row,
-            col=2,
-            trace=go.Scatter(
-                x=means[idx],
-                y=diffs[idx],
-                mode="markers",
-                marker_color=col,
-                showlegend=False,
-                opacity=0.5,
-                name=name,
-                legendgroup=name,
-            ),
-        )
-
-    # plot the bias
-    x_idx = np.argsort(means)
-    x_bias = means[x_idx]
-    f_bias = np.polyfit(means, diffs, 1)
-    y_bias = np.polyval(f_bias, x_bias)
-    fig.add_trace(
-        row=row,
-        col=2,
-        trace=go.Scatter(
-            x=x_bias,
-            y=y_bias,
-            mode="lines",
-            line_color="black",
-            line_dash="dot",
-            name="BIAS",
-            opacity=0.8,
-            showlegend=showlegend,
-        ),
-    )
-    chrs = np.max([len(str(i).split(".")[0]) + 2 for i in f_bias] + [6])
-    msg = [f"{i:+}" for i in f_bias]
-    msg = f"y = {msg[0][:chrs]}x {msg[1][:chrs]}"
-    fig.add_annotation(
-        row=row,
-        col=2,
-        x=x_bias[-1],
-        y=y_bias[-1],
-        text=msg,
-        showarrow=False,
-        xanchor="right",
-        yanchor="bottom",
-        standoff=5,
-        align="right",
-        valign="bottom",
-        font=dict(
-            family="sans serif",
-            size=12,
-            color="black",
-        ),
-    )
-    fig.add_annotation(
-        row=row,
-        col=2,
-        x=xrng[-1],
-        y=bias,
-        text=f"{bias:0.2f}",
-        showarrow=False,
-        xanchor="left",
-        align="left",
-        font=dict(
-            family="sans serif",
-            size=12,
-            color="black",
-        ),
-    )
-
-    # plot the limits of agreement
-    fig.add_trace(
-        row=row,
-        col=2,
-        trace=go.Scatter(
-            x=[xrng[0], xrng[1]],
-            y=[loalow, loalow],
-            mode="lines",
-            line_color="black",
-            line_dash="dashdot",
-            name=loa_lbl,
-            legendgroup=loa_lbl,
-            opacity=0.3,
-            showlegend=showlegend,
-        ),
-    )
-    fig.add_trace(
-        row=row,
-        col=2,
-        trace=go.Scatter(
-            x=[xrng[0], xrng[1]],
-            y=[loasup, loasup],
-            mode="lines",
-            line_color="black",
-            line_dash="dashdot",
-            name=loa_lbl,
-            legendgroup=loa_lbl,
-            opacity=0.3,
-            showlegend=False,
-        ),
-    )
-
-    fig.add_annotation(
-        row=row,
-        col=2,
-        x=xrng[-1],
-        y=loalow,
-        text=f"{loalow:0.2f}",
-        showarrow=False,
-        xanchor="left",
-        align="left",
-        font=dict(
-            family="sans serif",
-            size=12,
-            color="black",
-        ),
-        name=loa_lbl,
-    )
-
-    fig.add_annotation(
-        row=row,
-        col=2,
-        x=xrng[-1],
-        y=loasup,
-        text=f"{loasup:0.2f}",
-        showarrow=False,
-        xanchor="left",
-        align="left",
-        font=dict(
-            family="sans serif",
-            size=12,
-            color="black",
-        ),
-        name=loa_lbl,
     )
 
     if figure is None:
@@ -436,7 +493,9 @@ def bars_with_normative_bands(
         """return the rank corresponding to the x value"""
         if intervals.shape[0] > 0:
             for row in np.arange(intervals.shape[0]):
-                rnk, low, upp, clr = intervals.iloc[row].values.flatten()[-4:]
+                rnk, low, upp, clr = (
+                    intervals.iloc[row].values.astype(float).flatten()[-4:]
+                )
                 if x >= low and x <= upp:
                     return str(rnk), str(clr)
         return None, None
@@ -527,7 +586,7 @@ def bars_with_normative_bands(
     if intervals.shape[0] > 0:
         rnks = []
         for row in np.arange(intervals.shape[0]):
-            rnk, low, upp, clr = intervals.iloc[row].values.flatten()[-4:]
+            rnk, low, upp, clr = intervals.iloc[row].values.astype(float).flatten()[-4:]
             if not np.isfinite(low):
                 low = rng[0]
             if not np.isfinite(upp):

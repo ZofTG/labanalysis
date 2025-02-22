@@ -5,7 +5,7 @@
 import numpy as np
 import pandas as pd
 
-from ..frames import StateFrame
+from ...frames import StateFrame
 from ...constants import G
 
 __all__ = ["UprightStance"]

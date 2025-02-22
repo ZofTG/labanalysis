@@ -7,7 +7,7 @@ from typing import Literal
 
 import pandas as pd
 
-from ..frames import StateFrame
+from ...frames import StateFrame
 from ..posturaltests.upright import UprightStance
 from .side_jump import SideJump, SideJumpTest
 

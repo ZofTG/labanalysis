@@ -14,7 +14,7 @@ import plotly.express as px
 
 from ... import signalprocessing as labsp
 from ...plotting.plotly import bars_with_normative_bands
-from ..frames import StateFrame
+from ...frames import StateFrame
 from . import gait
 
 __all__ = ["WalkingStride", "WalkingTest"]
@@ -445,7 +445,9 @@ class WalkingTest(gait.GaitTest):
             ftoe = ftoe / np.max(ftoe)
 
             # get the minimum reasonable contact time for each step
-            dsamples = int(round(fsamp / 2))
+            frq, pwr = labsp.psd(ftoe, fsamp)
+            ffrq = frq[np.argmax(pwr)]
+            dsamples = int(round(fsamp / ffrq / 2))
 
             # get the peaks at each cycle
             pks = labsp.find_peaks(ftoe, 0.5, dsamples)
