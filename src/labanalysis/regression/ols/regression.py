@@ -195,7 +195,7 @@ class PolynomialRegression(LinearRegression):
         if isinstance(vec, pd.DataFrame):
             return vec.astype(float)
         if isinstance(vec, pd.Series):
-            return pd.DataFrame(vec).T.astype(float)
+            return pd.DataFrame(vec).astype(float)
         if isinstance(vec, list):
             return simplify_array(np.array(vec), label)
         if isinstance(vec, np.ndarray):
@@ -261,7 +261,7 @@ class PolynomialRegression(LinearRegression):
         self._names_in = X.columns.tolist()
 
         # fit the model
-        fitted = super().fit(X.values, Y)
+        fitted = super().fit(X, Y)
 
         # update the betas
         coefs = [np.atleast_2d(fitted.intercept_), fitted.coef_[:, 1:]]
@@ -676,27 +676,9 @@ class PowerRegression(PolynomialRegression):
         if X.shape[1] != 1:
             raise ValueError("xarr must be a 1D array or equivalent set")
 
-        # apply the data transform
-        K = X.map(self.transform)
-
-        # check the domain
-        outside_domain = X.loc[(X < self.domain[0]).any(axis=1)].index.to_numpy()
-        if np.any(outside_domain):
-            warnings.warn(f"X values must lie in the [{self.domain}] range.")
-
-        # ensure to evaluate only the valid range
-        valid = K.notna().any(axis=1) & (K >= self.domain[0]).any(axis=1)
-
         # get the predictions
-        b0, b1 = self.betas.values
-        cols = self.get_feature_names_out()
-        Y = pd.DataFrame(
-            data=np.ones((X.shape[0], len(cols))) * np.nan,
-            columns=cols,
-            index=X.index,
-        )
-        Y.loc[valid] = b0 * (K.loc[valid]) ** b1
-        return Y
+        b0, b1 = self.betas.values.astype(float).flatten()
+        return b0 * (X.map(self.transform) ** b1)
 
     def copy(self):
         """create a copy of the current object."""
