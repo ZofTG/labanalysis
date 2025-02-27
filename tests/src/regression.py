@@ -44,7 +44,16 @@ def _add_noise(
 
 def test_ols():
     """test the regression module"""
-    x = np.linspace(0, 100, 101)
+    x = np.linspace(1, 100, 101)
+
+    # power regression
+    print("\nTESTING POWER REGRESSION")
+    y = abs(_add_noise(2 * x**0.5, 0.1))
+    model = PowerRegression().fit(x, y)
+    betas = model.betas
+    z = model.predict(x).values.flatten()
+    rmse = np.nanmean((y - z) ** 2) ** 0.5
+    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
 
     # multiline regression
     print("\nTESTING MULTISEGMENT REGRESSION")
@@ -71,15 +80,6 @@ def test_ols():
     betas = model.betas
     z = model.predict(x).values.flatten()
     rmse = np.mean((y - z) ** 2) ** 0.5
-    print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
-
-    # power regression
-    print("\nTESTING POWER REGRESSION")
-    y = abs(_add_noise(2 * x**0.5, 0.1))
-    model = PowerRegression().fit(x, y)
-    betas = model.betas
-    z = model.predict(x).values.flatten()
-    rmse = np.nanmean((y - z) ** 2) ** 0.5
     print(f"Output betas: {betas}\nRMSE: {rmse:0.3f}\n")
 
 
@@ -110,8 +110,8 @@ def test_geometry():
 
 def test_regression():
     """test the regression library"""
-    test_geometry()
     test_ols()
+    test_geometry()
 
 
 if __name__ == "__main__":

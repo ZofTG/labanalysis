@@ -560,15 +560,10 @@ class PowerRegression(PolynomialRegression):
     """
     Regression model having form:
 
-                Y = b0 + b1 * (fn(X) - b2) ** b3 + e
+                Y = b0 * fn(X) ** b3 + e
 
     Parameters
     ----------
-    fit_intercept : bool, default=True
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations
-        (i.e. data is expected to be centered).
-
     transform: Callable, default = lambda x: x
         a callable function defining the type of transform to be applied
         elementwise to each input value of X before the extension to the
@@ -599,11 +594,10 @@ class PowerRegression(PolynomialRegression):
     """
 
     _domain = (-np.inf, np.inf)
-    _codomain = (-np.inf, np.inf)
+    _codomain = (0, np.inf)
 
     def __init__(
         self,
-        fit_intercept: bool = True,
         transform: Callable = lambda x: x,
         copy_X: bool = True,
         n_jobs: int = 1,
@@ -611,7 +605,7 @@ class PowerRegression(PolynomialRegression):
     ):
         super().__init__(
             degree=1,
-            fit_intercept=fit_intercept,
+            fit_intercept=True,
             transform=transform,
             copy_X=copy_X,
             n_jobs=n_jobs,
@@ -646,27 +640,17 @@ class PowerRegression(PolynomialRegression):
         if K.shape[1] != 1:
             raise ValueError("xarr must be a 1D array or equivalent set")
 
-        # get b0 and b2
-        b0 = float(np.atleast_1d(0 if not self._has_intercept else Y.min() - 1))
-        b2 = float(np.atleast_1d(K.min().values.astype(float))) - 1
-        if b2 > -1:
-            b2 = 0
-
         # transform the data
-        Yt = (Y - b0).map(np.log)
-        Xt = (K - b2).map(np.log)
+        Yt = (Y).map(np.log)
+        Xt = (K).map(np.log)
         fitted = super().fit(Xt, Yt)
         b1 = float(np.e**fitted.intercept_)
         b3 = float(np.squeeze(fitted.coef_)[-1])
         fitted._betas = pd.DataFrame(
-            data=[b0, b1, b2, b3],
-            index=[f"beta{i}" for i in range(4)],
+            data=[b1, b3],
+            index=[f"beta{i}" for i in range(2)],
             columns=Y.columns,
         )
-
-        # update domain and codomain
-        fitted._codomain = (b0, np.inf)
-        fitted._domain = (float(X.loc[(K - 1 == b2).any(axis=1)].index[0]), np.inf)
 
         return fitted
 
@@ -704,14 +688,14 @@ class PowerRegression(PolynomialRegression):
         valid = K.notna().any(axis=1) & (K >= self.domain[0]).any(axis=1)
 
         # get the predictions
-        b0, b1, b2, b3 = self.betas.values
+        b0, b1 = self.betas.values
         cols = self.get_feature_names_out()
         Y = pd.DataFrame(
             data=np.ones((X.shape[0], len(cols))) * np.nan,
             columns=cols,
             index=X.index,
         )
-        Y.loc[valid] = b0 + b1 * (K.loc[valid] - b2) ** b3
+        Y.loc[valid] = b0 * (K.loc[valid]) ** b1
         return Y
 
     def copy(self):
