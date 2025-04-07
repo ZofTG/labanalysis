@@ -103,6 +103,7 @@ __all__ = [
     "freedman_diaconis_bins",
     "fir_filt",
     "padwin",
+    "thresholding_filt",
     "mean_filt",
     "median_filt",
     "rms_filt",
@@ -461,6 +462,116 @@ def padwin(
     mask = np.atleast_2d([rng + i for i in idx])
 
     return pad, mask
+
+
+def thresholding_filt(
+    arr: np.ndarray,
+    factor: float | int = 3,
+    robust: bool = False,
+    order: int = 3,
+    pad_style: str = "edge",
+    offset: float = 0.5,
+):
+    """
+    apply a thresholding filter where only those values being moving average filter to the signal.
+
+    Parameters
+    ----------
+    arr: np.ndarray[Any, np.dtype[np.float64]],
+        the signal to be filtered.
+
+    factor: int | float
+        the factor to be multiplied by the standard deviation of the reading
+        window to detect extreme values.
+
+    robust: bool = False,
+        If False, thresholding and replacement of extreme values will be obtained
+        using mean and standard deviation of the reading window.
+        If True, median and median absolute difference will be used otherwise.
+
+    order: int = 3,
+        the number of samples to be considered as averaging window.
+
+    pd: str = "edge"
+        the type of padding style adopted to apply before implementing
+        the filter. Available options are:
+
+        constant (default)
+        Pads with a constant value.
+
+        edge
+        Pads with the edge values of array.
+
+        linear_ramp
+        Pads with the linear ramp between end_value and the array
+        edge value.
+
+        maximum
+        Pads with the maximum value of all or part of the vector
+        along each axis.
+
+        mean
+        Pads with the mean value of all or part of the vector
+        along each axis.
+
+        median
+        Pads with the median value of all or part of the vector
+        along each axis.
+
+        minimum
+        Pads with the minimum value of all or part of the vector
+        along each axis.
+
+        reflect
+        Pads with the reflection of the vector mirrored on the first
+        and last values of the vector along each axis.
+
+        symmetric
+        Pads with the reflection of the vector mirrored along the edge
+        of the array.
+
+        wrap
+        Pads with the wrap of the vector along the axis. The first values
+        are used to pad the end and the end values are used to pad
+        the beginning.
+
+    offset: float
+        a value within the [0, 1] range defining how the averaging window is
+        obtained.
+        Offset=0,
+            indicate that for each sample, the filtered value will be the mean
+            of the subsequent n-1 values plus the current sample.
+        Offset=1,
+            on the other hand, calculates the filtered value at each sample as
+            the mean of the n-1 preceding values plus the current sample.
+        Offset=0.5,
+            centers the averaging window around the actual sample being
+            evaluated.
+
+    Returns
+    -------
+    z: 1D array
+        The filtered signal.
+    """
+
+    # pad the array
+    pads, mask = padwin(arr, order, pad_style, offset)
+
+    # get the required values
+    if robust:
+        vals = np.array([np.median(pads[i]) for i in mask])
+        thresh = [np.median(abs(pads[v] - vals[i])) for i, v in enumerate(mask)]
+        thresh = np.array(thresh)
+    else:
+        vals = np.array([np.mean(pads[i]) for i in mask])
+        thresh = np.array([np.std(pads[i]) for i in mask])
+
+    # replace the extreme values
+    out = np.copy(arr)
+    extremes = np.abs(arr - vals) > factor * thresh
+    out[extremes] = vals[extremes]
+
+    return out
 
 
 def mean_filt(

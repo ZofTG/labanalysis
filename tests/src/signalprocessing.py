@@ -21,6 +21,15 @@ __all__ = ["test_signalprocessing"]
 def test_signalprocessing():
     """test the regression module"""
 
+    # thresholded filter
+    samples = 1001
+    x = np.linspace(0, 1, samples)
+    freq = 2
+    y = np.sin(x * freq * 2 * np.pi)
+    noise = np.random.randn(samples) * 2
+    filtered_median = thresholding_filt(y + noise, factor=2, robust=True, order=10)
+    filtered_mean = thresholding_filt(y + noise, factor=2, robust=False, order=10)
+
     # fillna
     x = np.random.randn(100, 10)
     value = float(np.quantile(x.flatten(), 0.05))
