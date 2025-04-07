@@ -10,7 +10,7 @@ import numpy as np
 
 sys.path += [dirname(dirname(dirname(__file__)))]
 
-from src import *
+from src.labanalysis import *
 
 __all__ = ["test_signalprocessing"]
 
