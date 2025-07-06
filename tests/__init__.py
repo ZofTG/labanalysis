@@ -1,3 +1,7 @@
-"""testing module"""
+"""test.src"""
 
-from .src import *
+from .plotting import *
+from .regression import *
+from .signalprocessing import *
+from .testprotocols import *
+from .utils import *

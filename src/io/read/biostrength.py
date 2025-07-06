@@ -11,11 +11,13 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from labanalysis import constants
+
 
 #! CLASSES
 
 
-class Product:
+class BiostrengthProduct:
     """Product class object"""
 
     # * class variables
@@ -102,7 +104,7 @@ class Product:
         """return the calculated lever weight"""
         return (
             self.load_motor_nm
-            / G
+            / constants.G
             / self._pulley_radius_m
             * self.camme_ratio
             / self.spring_correction
@@ -236,7 +238,7 @@ class Product:
         try:
             self._load_motor_nm = (
                 (load_kgf - self._lever_weight_kgf)
-                * G
+                * constants.G
                 * self._pulley_radius_m
                 * self._spring_correction
                 / self._camme_ratio
@@ -258,7 +260,7 @@ class Product:
             raise ValueError(msg)
 
     @classmethod
-    def from_file(cls, file: str):
+    def from_txt_file(cls, file: str):
         """
         read raw data from file
 
@@ -286,7 +288,85 @@ class Product:
         return cls(time, pos, load)  # type: ignore
 
 
-class LegPress(Product):
+class ChestPress(BiostrengthProduct):
+    """Chest Press class object"""
+
+    _spring_correction: float = 1.15  # vecchia 1.35
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = -4.0
+    _camme_ratio: float = 0.74
+    _lever_number: int = 1
+    _lever_radius_m: float = 0.054
+    _rom_correction_coefs: list[float] = [
+        -0.0000970270993668,
+        0.0284363503605837,
+        -0.1454105176656738,
+    ]
+    _rm1_coefs: list[float] = [0.963351, 2.845189]
+    _torque_load_coefs: list[float] = [1, 0]  # torque correction coefficients
+
+    def __init__(
+        self,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
+    ):
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
+
+
+class ShoulderPress(BiostrengthProduct):
+    """Shoulder Press class object"""
+
+    _spring_correction: float = 1  # vecchia 1.35
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = -1.2
+    _camme_ratio: float = 0.794
+    _lever_number: int = 1
+    _lever_radius_m: float = 0.054
+    _rom_correction_coefs: list[float] = [
+        -0.0001308668672017,
+        0.0242885910602534,
+        -0.0911406828188467,
+    ]
+    _rm1_coefs: list[float] = [0.862141, 1.419287]
+    _torque_load_coefs: list[float] = [1, 0]  # torque correction coefficients
+
+    def __init__(
+        self,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
+    ):
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
+
+
+class LowRow(BiostrengthProduct):
+    """Low Row class object"""
+
+    _spring_correction: float = 1  # vecchia 1.0
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 5.0
+    _camme_ratio: float = 0.64
+    _lever_number: int = 1
+    _lever_radius_m: float = 0.054
+    _rom_correction_coefs: list[float] = [
+        0.0009021430405893,
+        -0.0236810740758083,
+        0.1162621888946583,
+    ]
+    _rm1_coefs: list[float] = [0.695723, 3.142428]
+    _torque_load_coefs: list[float] = [1, 0]  # torque correction coefficients
+
+    def __init__(
+        self,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
+    ):
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
+
+
+class LegPress(BiostrengthProduct):
     """Leg Press class object"""
 
     _spring_correction: float = 1
@@ -312,7 +392,7 @@ class LegPress(Product):
         super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
-class LegExtension(Product):
+class LegExtension(BiostrengthProduct):
     """Leg Extension class object"""
 
     _spring_correction: float = 0.79
@@ -338,7 +418,7 @@ class LegExtension(Product):
         super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
-class AdjustablePulleyREV(Product):
+class AdjustablePulleyREV(BiostrengthProduct):
     """Adjustable Pulley REV class object"""
 
     _spring_correction: float = 1
@@ -396,13 +476,12 @@ class LegExtensionREV(LegExtension):
         super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
-#! CONSTANTS
-
-
-G = 9.80665
-
 __all__ = [
     "PRODUCTS",
+    "ChestPress",
+    "ShoulderPress",
+    "LowRow",
+    "BiostrengthProduct",
     "LegPress",
     "LegExtension",
     "AdjustablePulleyREV",
@@ -411,6 +490,9 @@ __all__ = [
 ]
 
 PRODUCTS = {
+    "CHEST PRESS": ChestPress,
+    "SHOULDER PRESS": ShoulderPress,
+    "LOW ROW": LowRow,
     "LEG PRESS": LegPress,
     "LEG EXTENSION": LegExtension,
     "ADJUSTABLE PULLEY REV": AdjustablePulleyREV,

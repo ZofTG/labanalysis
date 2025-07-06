@@ -16,7 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ...io.read.biostrength import Product
+from ...io.read.biostrength import BiostrengthProduct
 from ... import signalprocessing as sp
 from ..base import LabTest
 
@@ -81,8 +81,8 @@ class Isokinetic1RMTest(LabTest):
 
     # * class variables
 
-    _repetitions: list[Product]
-    _product: Product
+    _repetitions: list[BiostrengthProduct]
+    _product: BiostrengthProduct
     _side: Literal["Bilateral", "Left", "Right"]
 
     # * attributes
@@ -291,7 +291,7 @@ class Isokinetic1RMTest(LabTest):
 
     def __init__(
         self,
-        product: Product,
+        product: BiostrengthProduct,
         side: Literal["Bilateral", "Left", "Right"],
     ):
 

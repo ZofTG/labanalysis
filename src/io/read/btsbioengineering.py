@@ -22,11 +22,11 @@ __all__ = ["read_tdf", "read_emt"]
 import struct
 from io import BufferedReader
 from typing import Any
+
 import numpy as np
 import pandas as pd
 
 from ...utils import assert_file_extension
-
 
 #! CONSTANTS
 
@@ -629,7 +629,7 @@ def _read_camera_tracked(
         raise ValueError(msg)
 
     # convert the tracks in pandas dataframes
-    idx = np.arange(list(tracks.values())[0].shape[0]) / freq + time0
+    idx = np.arange(list(tracks.values())[0].shape[0]) / freq + time0  # type: ignore
     idx = pd.Index(idx, name="TIME [s]")
     kys = list(tracks.keys())
     nms = ["LABEL", "DIMENSION", "UNIT"]
@@ -1037,7 +1037,7 @@ def _read_platforms_tracked(
     }
 
     # convert the tracks in pandas dataframes
-    tarr = np.arange(list(tracks.values())[0].shape[0]) / freq + time0
+    tarr = np.arange(list(tracks.values())[0].shape[0]) / freq + time0  # type: ignore
     tarr = pd.Index(tarr, name="TIME [s]")
     axs = ["X", "Y", "Z"]
     pairs = tuple(zip(["ORIGIN", "FORCE", "TORQUE"], ["m", "N", "Nm"]))
@@ -1049,7 +1049,7 @@ def _read_platforms_tracked(
             dims = 3 * idx + np.arange(3)
             cols = [[trk], [src], axs, [unt]]
             cols = pd.MultiIndex.from_product(cols, names=nms)
-            objs += [pd.DataFrame(arr[:, dims], index=tarr, columns=cols)]
+            objs += [pd.DataFrame(arr[:, dims], index=tarr, columns=cols)]  # type: ignore
     out["TRACKS"] = pd.concat(objs, axis=1)
 
     return out
@@ -1176,7 +1176,7 @@ def _read_data_generic(
     tracks = pd.DataFrame(tracks)
     idx = pd.Index(np.arange(tracks.shape[0]) / freq + time0, name="TIME [s]")
     tracks.index = idx
-    col = pd.MultiIndex.from_product(tracks.columns.to_numpy(), ["-"])
+    col = pd.MultiIndex.from_product(tracks.columns.to_numpy(), ["-"])  # type: ignore
     tracks.columns = col
     return {
         "TRACKS": tracks,

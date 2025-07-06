@@ -3,21 +3,21 @@
 #! IMPORTS
 
 
+from os.path import exists
 import warnings
-from typing import Literal
+from typing import Any, Iterable, Literal
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
+from ...io.read.btsbioengineering import read_tdf
 from ... import signalprocessing as labsp
 from ...constants import (
     DEFAULT_MINIMUM_CONTACT_GRF_N,
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
 from ..base import LabTest
-from ...frames import StateFrame
+from ...frames import *
 
 
 #! CONSTANTS
@@ -29,35 +29,47 @@ __all__ = ["GaitCycle", "GaitTest"]
 #! CLASSESS
 
 
-class GaitObject(StateFrame):
+class GaitObject:
     """
     basic gait object class.
 
     Parameters
     ----------
-    frame: StateFrame
-        a stateframe object containing all the available kinematic, kinetic
-        and emg data related to the cycle
+    algorithm: Literal['kinematics', 'kinetics'] = 'kinematics'
+        If algorithm = 'kinematics' and markers are available an algorithm
+        based just on kinematic data is adopted to detect the gait cycles.
+        To run the kinematics algorithm, the following markers must be available:
+            - left_heel
+            - right_heel
+            - left_toe
+            - right_toe
+            - left_meta_head (Optional)
+            - right_meta_head (Optional)
+        If algorithm = 'kinetics' and forceplatforms data is available,
+        only kinetic data are used to detect the gait cycles. If this is the
+        case, the following force vector must be available:
+            - grf
+        If any of the two algorithms cannot run, a warning is thrown.
 
-    left_heel: str = 'lHeel'
+    left_heel: Point3D | None
         the left heel label
 
-    right_heel: str = 'rHeel'
+    right_heel: Point3D | None
         the right heel label
 
-    left_toe: str = 'lToe'
+    left_toe: Point3D | None
         the left toe label
 
-    right_toe: str = 'rToe'
+    right_toe: Point3D | None
         the right toe label
 
-    left_meta_head: str | None = 'lMid'
+    left_meta_head: Point3D | None
         the left metatarsal head label
 
-    right_meta_head: str | None = 'rMid'
+    right_meta_head: Point3D | None
         the right metatarsal head label
 
-    grf: str = 'fRes'
+    grf: ForcePlatform | None
         the ground reaction force label
 
     grf_threshold: float | int = GRF_THRESHOLD_DEFAULT
@@ -73,23 +85,68 @@ class GaitObject(StateFrame):
 
     antpos_axis: Literal['X', 'Y', 'Z'] = 'Z'
         the anterior-posterior axis
+
+    *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform
+        additional objects not directly used by the analysis
     """
 
     # * class variables
 
     _algorithm: Literal["kinetics", "kinematics"]
-    _left_heel: pd.DataFrame | None
-    _right_heel: pd.DataFrame | None
-    _left_toe: pd.DataFrame | None
-    _right_toe: pd.DataFrame | None
-    _left_meta_head: pd.DataFrame | None
-    _right_meta_head: pd.DataFrame | None
-    _grf: pd.DataFrame | None
-    _cop: pd.DataFrame | None
+    _left_heel: Point3D | None
+    _right_heel: Point3D | None
+    _left_toe: Point3D | None
+    _right_toe: Point3D | None
+    _left_meta_head: Point3D | None
+    _right_meta_head: Point3D | None
+    _grf: ForcePlatform | None
     _vertical_axis: Literal["X", "Y", "Z"]
     _antpos_axis: Literal["X", "Y", "Z"]
     _grf_threshold: float
     _height_threshold: float
+    _extra_signals: list[Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform]
+
+    # * constructor
+
+    def __init__(
+        self,
+        algorithm: Literal["kinematics", "kinetics"],
+        left_heel: Point3D | None = None,
+        right_heel: Point3D | None = None,
+        left_toe: Point3D | None = None,
+        right_toe: Point3D | None = None,
+        left_meta_head: Point3D | None = None,
+        right_meta_head: Point3D | None = None,
+        grf: ForcePlatform | None = None,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+        vertical_axis: Literal["X", "Y", "Z"] = "Y",
+        antpos_axis: Literal["X", "Y", "Z"] = "Z",
+        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
+    ):
+
+        # set the algorithm
+        self.set_algorithm(algorithm)
+
+        # set the thresholds
+        self.set_height_threshold(height_threshold)
+        self.set_grf_threshold(grf_threshold)
+
+        # set the vertical and antpos axis
+        self.set_vertical_axis(vertical_axis)
+        self.set_antpos_axis(antpos_axis)
+
+        # set the labels
+        self.set_left_heel(left_heel)
+        self.set_right_heel(right_heel)
+        self.set_left_metatarsal_head(left_meta_head)
+        self.set_right_metatarsal_head(right_meta_head)
+        self.set_left_toe(left_toe)
+        self.set_right_toe(right_toe)
+        self.set_ground_reaction_force(grf)
+        self._extra_signals = []
+        for signal in extra_signals:
+            self.add_extra_signal(signal)
 
     # * attributes
 
@@ -99,24 +156,23 @@ class GaitObject(StateFrame):
         return self._algorithm
 
     @property
-    def init_s(self):
-        """return the first toeoff time in seconds"""
-        return float(self.to_dataframe().index.to_list()[0])
-
-    @property
-    def end_s(self):
-        """return the toeoff time corresponding to the end of the cycle in seconds"""
-        return float(self.to_dataframe().index.to_list()[-1])
-
-    @property
     def resultant_force(self):
         """return the ground reaction force data"""
-        return self._grf
+        if self._grf is None:
+            return None
+        return self._grf.force
 
     @property
     def centre_of_pressure(self):
         """return the center of pressure data"""
-        return self._cop
+        if self._grf is None:
+            return None
+        return self._grf.origin
+
+    @property
+    def ground_reaction_force(self):
+        """return the ground reaction force object"""
+        return self._grf
 
     @property
     def left_heel(self):
@@ -154,9 +210,16 @@ class GaitObject(StateFrame):
         return self._vertical_axis
 
     @property
-    def antpos_axis(self):
+    def anteroposterior_axis(self):
         """return the anterior-posterior axis"""
         return self._antpos_axis
+
+    @property
+    def lateral_axis(self):
+        """return the anterior-posterior axis"""
+        used = [self.vertical_axis, self.anteroposterior_axis]
+        axes = [Literal['X'], Literal['Y'], Literal['Z']]
+        return [i for i in axes if i not in used][0]
 
     @property
     def grf_threshold(self):
@@ -170,26 +233,13 @@ class GaitObject(StateFrame):
 
     # * methods
 
-    def _get_marker(self, label: str | None):
-        """check if a label is available in the kinematic data and return it"""
-        if label is not None and not isinstance(label, str):
-            raise ValueError("'label' must be a string.")
-        if label in self.markers.columns.get_level_values(0).unique():
-            return pd.DataFrame(self.markers[[label]])
-        return None
-
-    def _get_forcevector(self, label: str | None):
-        """check if a label is available in the forceplatforms data and return it"""
-        if label is not None and not isinstance(label, str):
-            raise ValueError("'label' must be a string.")
-        if label in self.forceplatforms.columns.get_level_values(0).unique():
-            grf = pd.DataFrame(self.forceplatforms[label].FORCE)
-            cols = [(label,) + i for i in grf.columns.to_list()]  # type: ignore
-            grf.columns = pd.MultiIndex.from_tuples(cols)
-            cop = pd.DataFrame(self.forceplatforms[label].ORIGIN)
-            cols = [(label,) + i for i in cop.columns.to_list()]  # type: ignore
-            cop.columns = pd.MultiIndex.from_tuples(cols)
-        return grf, cop
+    def _check_input(self, obj: Any, target: type | Iterable[type]):
+        """check if the provided object is None or a Point3D object and return it"""
+        if isinstance(target, Iterable):
+            target = tuple(i for i in target)
+        if obj is None or isinstance(obj, target):
+            return obj
+        raise ValueError(f"obj must be a {type} instance or None.")
 
     def _filter_kinetics(self, grf: np.ndarray, time: np.ndarray):
         """filter the ground reaction force signal"""
@@ -243,7 +293,7 @@ class GaitObject(StateFrame):
             raise ValueError("'axis' must be 'X', 'Y' or 'Z'")
         self._antpos_axis = axis
 
-    def _set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
+    def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
         """set the gait cycle detection algorithm"""
         algorithms = ["kinematics", "kinetics"]
         if not isinstance(algorithm, str) or algorithm not in algorithms:
@@ -298,63 +348,52 @@ class GaitObject(StateFrame):
 
         self._algorithm = algo
 
-    # * constructor
+    def set_left_heel(self, heel: Point3D | None):
+        """set the left heel coordinates."""
+        self._left_heel = self._check_input(heel, Point3D)
 
-    def __init__(
-        self,
-        frame: StateFrame,
-        left_heel: str | None = "lHeel",
-        right_heel: str | None = "rHeel",
-        left_toe: str | None = "lToe",
-        right_toe: str | None = "rToe",
-        left_meta_head: str | None = "lMid",
-        right_meta_head: str | None = "rMid",
-        grf: str | None = "fRes",
-        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
-        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
-        vertical_axis: Literal["X", "Y", "Z"] = "Y",
-        antpos_axis: Literal["X", "Y", "Z"] = "Z",
-    ):
+    def set_right_heel(self, heel: Point3D | None):
+        """set the right heel coordinates."""
+        self._right_heel = self._check_input(heel, Point3D)
 
-        # check the frame
-        if not isinstance(frame, StateFrame):
-            raise ValueError("'frame' must be a StateFrame instance.")
+    def set_left_metatarsal_head(self, meta: Point3D | None):
+        """set the left metatarsal head coordinates."""
+        self._left_meta_head = self._check_input(meta, Point3D)
 
-        # initialize the object
-        super().__init__(
-            markers_raw=frame.markers,
-            forceplatforms_raw=frame.forceplatforms,
-            emgs_raw=frame.emgs,
-        )
-        self._processed = frame.is_processed()
-        self._marker_processing_options = frame.marker_processing_options
-        self._forceplatform_processing_options = frame.forceplatform_processing_options
-        self._emg_processing_options = frame.emg_processing_options
+    def set_right_metatarsal_head(self, meta: Point3D | None):
+        """set the right metatarsal head coordinates."""
+        self._right_meta_head = self._check_input(meta, Point3D)
 
-        # set the labels
-        self._left_heel = self._get_marker(left_heel)
-        self._right_heel = self._get_marker(right_heel)
-        self._left_toe = self._get_marker(left_toe)
-        self._right_toe = self._get_marker(right_toe)
-        self._left_meta_head = self._get_marker(left_meta_head)
-        self._right_meta_head = self._get_marker(right_meta_head)
-        self._grf, self._cop = self._get_forcevector(grf)
+    def set_left_toe(self, toe: Point3D | None):
+        """set the left toe coordinates."""
+        self._left_toe = self._check_input(toe, Point3D)
 
-        # set the thresholds
-        if not isinstance(grf_threshold, (int, float)):
-            raise ValueError("'grf_threshold' must be a float or int")
-        self._grf_threshold = float(grf_threshold)
-        if not isinstance(height_threshold, (int, float)):
-            raise ValueError("'height_threshold' must be a float or int")
-        self._height_threshold = float(height_threshold)
+    def set_right_toe(self, toe: Point3D | None):
+        """set the right toe coordinates."""
+        self._right_toe = self._check_input(toe, Point3D)
 
-        # set the vertical and antpos axis
-        if vertical_axis not in ["X", "Y", "Z"]:
-            raise ValueError("'vertical_axis' must be 'X', 'Y' or 'Z'")
-        self._vertical_axis = vertical_axis
-        if antpos_axis not in ["X", "Y", "Z"]:
-            raise ValueError("'antpos_axis' must be 'X', 'Y' or 'Z'")
-        self._antpos_axis = antpos_axis
+    def set_ground_reaction_force(self, grf: ForcePlatform | None):
+        """set the ground reaction force data"""
+        self._grf = self._check_input(grf, ForcePlatform)
+
+    def add_extra_signal(self, signal: Signal1D | Signal3D | Point3D | EMGSignal | ForcePlatform):
+        """add extra signals to the object"""
+        types = (Signal1D, Signal3D, Point3D, EMGSignal, ForcePlatform)
+        self._extra_signals += [self._check_input(signal, types)]
+
+    def remove_extra_signal(self, name:str):
+        """remove the first signal having the provided name"""
+        if not isinstance(name, str):
+            raise ValueError("'name' must be a str instance.")
+        for signal in self._extra_signals:
+            if signal.name == name:
+                self._extra_signals.remove(signal)
+
+    def pop_extra_signal(self, index:int):
+        """remove the extra signal at the given index"""
+        if not isinstance(index, int):
+            raise ValueError("'index' must be an int instance.")
+        return self._extra_signals.pop(index)
 
 
 class GaitCycle(GaitObject):
@@ -363,12 +402,8 @@ class GaitCycle(GaitObject):
 
     Parameters
     ----------
-    side: Literal['LEFT', 'RIGHT']
+    side: Literal['left', 'right']
         the side of the cycle
-
-    frame: StateFrame
-        a stateframe object containing all the available kinematic, kinetic
-        and emg data related to the cycle
 
     algorithm: Literal['kinematics', 'kinetics'] = 'kinematics'
         If algorithm = 'kinematics' and markers are available an algorithm
@@ -386,25 +421,25 @@ class GaitCycle(GaitObject):
             - grf
         If any of the two algorithms cannot run, a warning is thrown.
 
-    left_heel: str = 'lHeel'
+    left_heel: Point3D | None
         the left heel label
 
-    right_heel: str = 'rHeel'
+    right_heel: Point3D | None
         the right heel label
 
-    left_toe: str = 'lToe'
+    left_toe: Point3D | None
         the left toe label
 
-    right_toe: str = 'rToe'
+    right_toe: Point3D | None
         the right toe label
 
-    left_meta_head: str | None = 'lMid'
+    left_meta_head: Point3D | None
         the left metatarsal head label
 
-    right_meta_head: str | None = 'rMid'
+    right_meta_head: Point3D | None
         the right metatarsal head label
 
-    grf: str = 'fRes'
+    grf: ForcePlatform | None
         the ground reaction force label
 
     grf_threshold: float | int = GRF_THRESHOLD_DEFAULT
@@ -421,6 +456,9 @@ class GaitCycle(GaitObject):
     antpos_axis: Literal['X', 'Y', 'Z'] = 'Z'
         the anterior-posterior axis
 
+    *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform
+        additional objects not directly used by the analysis
+
     Note
     ----
     the cycle starts from the toeoff and ends at the next toeoff of the
@@ -429,7 +467,7 @@ class GaitCycle(GaitObject):
 
     # * class variables
 
-    _side: Literal["LEFT", "RIGHT"]
+    _side: Literal["left", "right"]
     _footstrike_s: float
     _midstance_s: float
     _absolute_time_events: list[str] = [
@@ -439,11 +477,43 @@ class GaitCycle(GaitObject):
         "end_s",
     ]
 
-    # * attributes
+    # * constructor
 
-    @property
-    def absolute_time_events(self):
-        return self._absolute_time_events
+    def __init__(
+        self,
+        side: Literal["left", "right"],
+        algorithm: Literal["kinematics", "kinetics"],
+        left_heel: Point3D | None = None,
+        right_heel: Point3D | None = None,
+        left_toe: Point3D | None = None,
+        right_toe: Point3D | None = None,
+        left_meta_head: Point3D | None = None,
+        right_meta_head: Point3D | None = None,
+        grf: ForcePlatform | None = None,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+        vertical_axis: Literal["X", "Y", "Z"] = "Y",
+        antpos_axis: Literal["X", "Y", "Z"] = "Z",
+        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
+    ):
+        super().__init__(
+            algorithm=algorithm,
+            left_heel=left_heel,
+            right_heel=right_heel,
+            left_toe=left_toe,
+            right_toe=right_toe,
+            left_meta_head=left_meta_head,
+            right_meta_head=right_meta_head,
+            grf=grf,
+            grf_threshold=grf_threshold,
+            height_threshold=height_threshold,
+            vertical_axis=vertical_axis,
+            antpos_axis=antpos_axis,
+            *extra_signals,
+        )
+        self.set_side(side)
+
+    # * attributes
 
     @property
     def side(self):
@@ -451,9 +521,22 @@ class GaitCycle(GaitObject):
         return self._side
 
     @property
-    def algorithm(self):
-        """return the step detection algorithm"""
-        return self._algorithm
+    def init_s(self):
+        """return the first toeoff time in seconds"""
+        if self.algorithm == "kinetics" and self.resultant_force is not None:
+            return float(self.resultant_force.data.index.to_numpy()[0])
+        elif self.algorithm == "kinematics" and self.left_heel is not None:
+            return float(self.left_heel.data.index.to_numpy()[0])
+        raise ValueError(f"'{self.algorithm}' is not a valid algorithm label.")
+
+    @property
+    def end_s(self):
+        """return the toeoff time corresponding to the end of the cycle in seconds"""
+        if self.algorithm == "kinetics" and self.resultant_force is not None:
+            return float(self.resultant_force.data.index.to_numpy()[-1])
+        elif self.algorithm == "kinematics" and self.left_heel is not None:
+            return float(self.left_heel.data.index.to_numpy()[-1])
+        raise ValueError(f"'{self.algorithm}' is not a valid algorithm label.")
 
     @property
     def cycle_time_s(self):
@@ -533,51 +616,16 @@ class GaitCycle(GaitObject):
 
     def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
         """set the gait cycle detection algorithm"""
-        self._set_algorithm(algorithm)
+        super().set_algorithm(algorithm)
         self._update_events()
 
-    # * constructor
-
-    def __init__(
-        self,
-        side: Literal["LEFT", "RIGHT"],
-        frame: StateFrame,
-        algorithm: Literal["kinematics", "kinetics"] = "kinematics",
-        left_heel: str | None = "lHeel",
-        right_heel: str | None = "rHeel",
-        left_toe: str | None = "lToe",
-        right_toe: str | None = "rToe",
-        left_meta_head: str | None = "lMid",
-        right_meta_head: str | None = "rMid",
-        grf: str | None = "fRes",
-        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
-        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
-        vertical_axis: Literal["X", "Y", "Z"] = "Y",
-        antpos_axis: Literal["X", "Y", "Z"] = "Z",
-    ):
-        super().__init__(
-            frame=frame,
-            left_heel=left_heel,
-            right_heel=right_heel,
-            left_toe=left_toe,
-            right_toe=right_toe,
-            left_meta_head=left_meta_head,
-            right_meta_head=right_meta_head,
-            grf=grf,
-            grf_threshold=grf_threshold,
-            height_threshold=height_threshold,
-            vertical_axis=vertical_axis,
-            antpos_axis=antpos_axis,
-        )
-
-        # check the side
-        if not isinstance(side, str):
-            raise ValueError("'side' must be 'LEFT' or 'RIGHT'")
-        if side in ["LEFT", "RIGHT"]:
-            self._side = side
-
-        # update the gait events
-        self.set_algorithm(algorithm)
+    def set_side(self, side:Literal['right', 'left']):
+        """set the cycle side"""
+        if not isinstance(side, (Literal, str)):
+            raise ValueError("'side' must be 'left' or 'right'.")
+        if side not in ['left', 'right']:
+            raise ValueError("'side' must be 'left' or 'right'.")
+        self._side = side
 
 
 class GaitTest(GaitObject, LabTest):
@@ -587,10 +635,6 @@ class GaitTest(GaitObject, LabTest):
 
     Parameters
     ----------
-    frame: StateFrame
-        a stateframe object containing all the available kinematic, kinetic
-        and emg data related to the cycle
-
     algorithm: Literal['kinematics', 'kinetics'] = 'kinematics'
         If algorithm = 'kinematics' and markers are available an algorithm
         based just on kinematic data is adopted to detect the gait cycles.
@@ -607,25 +651,25 @@ class GaitTest(GaitObject, LabTest):
             - grf
         If any of the two algorithms cannot run, a warning is thrown.
 
-    left_heel: str = 'lHeel'
+    left_heel: Point3D | None
         the left heel label
 
-    right_heel: str = 'rHeel'
+    right_heel: Point3D | None
         the right heel label
 
-    left_toe: str = 'lToe'
+    left_toe: Point3D | None
         the left toe label
 
-    right_toe: str = 'rToe'
+    right_toe: Point3D | None
         the right toe label
 
-    left_meta_head: str | None = 'lMid'
+    left_meta_head: Point3D | None
         the left metatarsal head label
 
-    right_meta_head: str | None = 'rMid'
+    right_meta_head: Point3D | None
         the right metatarsal head label
 
-    grf: str = 'fRes'
+    grf: ForcePlatform | None
         the ground reaction force label
 
     grf_threshold: float | int = GRF_THRESHOLD_DEFAULT
@@ -641,6 +685,9 @@ class GaitTest(GaitObject, LabTest):
 
     antpos_axis: Literal['X', 'Y', 'Z'] = 'Z'
         the anterior-posterior axis
+
+    *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform
+        additional objects not directly used by the analysis
     """
 
     # * class variables
@@ -721,6 +768,18 @@ class GaitTest(GaitObject, LabTest):
 
         return long
 
+    def _make_results_table(self):
+        """return a table with the resulting data"""
+        if len(self.cycles) > 0:
+            out = []
+            for i, cycle in enumerate(self.cycles):
+                dfr = cycle.to_dataframe()
+                dfr.insert(0, "Side", np.tile(str(cycle.side), dfr.shape[0]))
+                dfr.insert(0, "Cycle", np.tile(i + 1, dfr.shape[0]))
+                out += [dfr]
+            return pd.concat(out).drop_duplicates().sort_index(axis=0)
+        return pd.DataFrame()
+
     def _make_summary_plot(
         self,
         normative_intervals: pd.DataFrame = pd.DataFrame(),
@@ -758,18 +817,6 @@ class GaitTest(GaitObject, LabTest):
         """
         return NotImplementedError
 
-    def _make_results_table(self):
-        """return a table with the resulting data"""
-        if len(self.cycles) > 0:
-            out = []
-            for i, cycle in enumerate(self.cycles):
-                dfr = cycle.to_dataframe()
-                dfr.insert(0, "Side", np.tile(str(cycle.side), dfr.shape[0]))
-                dfr.insert(0, "Cycle", np.tile(i + 1, dfr.shape[0]))
-                out += [dfr]
-            return pd.concat(out).drop_duplicates().sort_index(axis=0)
-        return pd.DataFrame()
-
     def _make_results_plot(self):
         """
         generate a view with allowing to understand the detected gait cycles
@@ -786,7 +833,7 @@ class GaitTest(GaitObject, LabTest):
 
     def set_algorithm(self, algorithm: Literal["kinematics", "kinetics"]):
         """set the gait cycle detection algorithm"""
-        self._set_algorithm(algorithm)
+        super().set_algorithm(algorithm)
 
         # update cycles
         self._cycles = []
@@ -799,28 +846,22 @@ class GaitTest(GaitObject, LabTest):
 
     def __init__(
         self,
-        frame: StateFrame,
-        algorithm: Literal["kinematics", "kinetics"] = "kinematics",
-        left_heel: str | None = "lHeel",
-        right_heel: str | None = "rHeel",
-        left_toe: str | None = "lToe",
-        right_toe: str | None = "rToe",
-        left_meta_head: str | None = "lMid",
-        right_meta_head: str | None = "rMid",
-        grf: str | None = "fRes",
+        algorithm: Literal["kinematics", "kinetics"],
+        left_heel: Point3D | None = None,
+        right_heel: Point3D | None = None,
+        left_toe: Point3D | None = None,
+        right_toe: Point3D | None = None,
+        left_meta_head: Point3D | None = None,
+        right_meta_head: Point3D | None = None,
+        grf: ForcePlatform | None = None,
         grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
         height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
+        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
-
-        # check the frame
-        if not isinstance(frame, StateFrame):
-            raise ValueError("'frame' must be a StateFrame instance.")
-
-        # initialize the object
         super().__init__(
-            frame=frame,
+            algorithm=algorithm,
             left_heel=left_heel,
             right_heel=right_heel,
             left_toe=left_toe,
@@ -832,10 +873,8 @@ class GaitTest(GaitObject, LabTest):
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
+            *extra_signals,
         )
-
-        # check the algorithm option
-        self.set_algorithm(algorithm)
 
     @classmethod
     def from_tdf_file(
@@ -914,7 +953,53 @@ class GaitTest(GaitObject, LabTest):
         antpos_axis: Literal['X', 'Y', 'Z'] = 'Z'
             the anterior-posterior axis
         """
-        return cls(
+        if not isinstance(file, str) or not exists(file):
+            raise ValueError("'file' must be the path to an existing .tdf file.")
+        tdf = read_tdf(file)
+        args = dict(algorithm=algorithm,
+            grf_threshold=grf_threshold,
+            height_threshold=height_threshold,
+            vertical_axis=vertical_axis,
+            antpos_axis=antpos_axis,)
+        points = tdf['CAMERA']['TRACKED']['TRACKS']  # type: ignore
+        if points is not None:
+            targets = {
+                'left_heel': left_heel,
+                'right_heel': right_heel,
+                'left_toe': left_toe,
+                'right_toe': right_toe,
+                'left_meta_head': left_meta_head,
+                'right_meta_head': right_meta_head,
+            }
+            lbls = points.columns.get_level_values(0).unique().tolist()
+            for target, lbl in targets.items():
+                if lbl is not None and lbl in lbls:
+                    obj = Point3D(
+                        xarr=points[lbl]['X'].values.astype(float).flatten(),
+                        yarr=points[lbl]['Y'].values.astype(float).flatten(),
+                        zarr=points[lbl]['Z'].values.astype(float).flatten(),
+                        time=points.index.to_numpy(),
+                        name=lbl,
+                        strip=True,
+                        reset_index=False,
+                    )
+                else:
+                    obj = None
+                args[target] = obj
+
+            targets = [left_heel, right_heel, left_toe, right_toe, left_meta_head, right_meta_head]
+            for target in relevant:
+
+                
+        obj = cls(
+            algorithm=algorithm,
+            grf_threshold=grf_threshold,
+            height_threshold=height_threshold,
+            vertical_axis=vertical_axis,
+            antpos_axis=antpos_axis,
+
+        )
+
             frame=StateFrame.from_tdf_file(file=file),
             algorithm=algorithm,
             left_heel=left_heel,
