@@ -1065,8 +1065,8 @@ class StateFrame(SmartDataFrame):
     @property
     def emgsignals(self):
         sub = self["EMGSignal"][self.columns.get_level_values(0)[0]]
-        out: dict[str, EMGSignal] = {}
-        for lbl in sub.columns.get_level_values(0).unique():
+        out: dict[tuple[str, str, str], EMGSignal] = {}
+        for lbl in sub.columns:
             dfr = sub[lbl]
             out[lbl] = EMGSignal(
                 data=dfr.values.astype(float).flatten(),
@@ -1384,96 +1384,3 @@ class StateFrame(SmartDataFrame):
             obj.reset_index(inplace=True)
 
         return obj
-
-
-class ProcessingPipeline:
-    """
-    A pipeline for processing various types of StateFrame-compatible objects.
-
-    This class allows the user to define a sequence of processing functions
-    for each supported object type (Signal1D, Signal3D, Point3D, EMGSignal, ForcePlatform)
-    and apply them to a collection of objects or StateFrames.
-
-    Parameters
-    ----------
-    signal1d_funcs : list of callable, optional
-        Functions to apply to Signal1D objects.
-
-    signal3d_funcs : list of callable, optional
-        Functions to apply to Signal3D objects.
-
-    point3d_funcs : list of callable, optional
-        Functions to apply to Point3D objects.
-
-    emgsignal_funcs : list of callable, optional
-        Functions to apply to EMGSignal objects.
-
-    forceplatform_funcs : list of callable, optional
-        Functions to apply to ForcePlatform objects.
-    """
-
-    def __init__(
-        self,
-        signal1d_funcs: List[Callable[[Signal1D], Signal1D]] = [],
-        signal3d_funcs: List[Callable[[Signal3D], Signal3D]] = [],
-        point3d_funcs: List[Callable[[Point3D], Point3D]] = [],
-        emgsignal_funcs: List[Callable[[EMGSignal], EMGSignal]] = [],
-        forceplatform_funcs: List[Callable[[ForcePlatform], ForcePlatform]] = [],
-    ):
-        self.pipeline: Dict[type, List[Callable[[Any], Any]]] = {
-            Signal1D: signal1d_funcs,
-            Signal3D: signal3d_funcs,
-            Point3D: point3d_funcs,
-            EMGSignal: emgsignal_funcs,
-            ForcePlatform: forceplatform_funcs,
-        }
-
-    def apply(self, *objects: Any, inplace: bool = False) -> Union[None, List[Any]]:
-        """
-        Apply the processing pipeline to the given objects.
-
-        Parameters
-        ----------
-        *objects : variable length argument list
-            Objects to process. Can be individual Signal1D, Signal3D, Point3D,
-            EMGSignal, ForcePlatform, or StateFrame instances.
-        inplace : bool, optional
-            If True, modifies the objects in place. If False, returns the processed copies.
-
-        Returns
-        -------
-        list or None
-            If inplace is False, returns a list of processed objects. Otherwise, returns None.
-        """
-        processed_objects = []
-
-        for obj in objects:
-            if isinstance(obj, StateFrame):
-                sf = obj if inplace else deepcopy(obj)
-                for cls, funcs in self.pipeline.items():
-                    attr_map = {
-                        Signal1D: sf.signals1d,
-                        Signal3D: sf.signals3d,
-                        Point3D: sf.points3d,
-                        EMGSignal: sf.emgsignals,
-                        ForcePlatform: sf.forceplatforms,
-                    }
-                    items = attr_map.get(cls, {})
-                    for key, val in items.items():
-                        for func in funcs:
-                            val = func(val)
-                        sf.add(**{key: val}, strip=False, reset_index=False)
-                if not inplace:
-                    processed_objects.append(sf)
-            else:
-                obj_type = type(obj)
-                funcs = self.pipeline.get(obj_type, [])
-                if not inplace:
-                    obj = deepcopy(obj)
-                for func in funcs:
-                    obj = func(obj)
-                if not inplace:
-                    processed_objects.append(obj)
-
-        if not inplace:
-            return processed_objects

@@ -33,6 +33,7 @@ plotting
 from .constants import *
 from .equations import *
 from .frames import *
+from .tests import *
 from .io import *
 from .messages import *
 from .plotting import *

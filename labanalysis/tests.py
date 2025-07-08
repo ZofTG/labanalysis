@@ -1,32 +1,25 @@
 """
 base test module containing classes and functions used to perform lab tests.
-
-Classes
--------
-Participant
-    an instance defining the general parameters of one subject during a test.
-
-LabTest
-    abstract class defining the general methods expected from a test
-
-TestBattery
-    class allowing the analysis of a set of tests
 """
 
 #! IMPORTS
 
 
+from copy import deepcopy
 import pickle
 from datetime import date, datetime
 from os.path import exists
-from typing import Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Protocol, runtime_checkable
 
 import pandas as pd
 import plotly.graph_objects as go
 
-from .. import messages
+from .frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
 
-__all__ = ["LabTest", "TestBattery", "Participant"]
+
+from . import messages
+
+__all__ = ["TestProtocol", "TestBattery", "Participant", "ProcessingPipeline"]
 
 
 #! CLASSES
@@ -362,8 +355,101 @@ class Participant:
         return self.dataframe.__str__()
 
 
+class ProcessingPipeline:
+    """
+    A pipeline for processing various types of StateFrame-compatible objects.
+
+    This class allows the user to define a sequence of processing functions
+    for each supported object type (Signal1D, Signal3D, Point3D, EMGSignal, ForcePlatform)
+    and apply them to a collection of objects or StateFrames.
+
+    Parameters
+    ----------
+    signal1d_funcs : list of callable, optional
+        Functions to apply to Signal1D objects.
+
+    signal3d_funcs : list of callable, optional
+        Functions to apply to Signal3D objects.
+
+    point3d_funcs : list of callable, optional
+        Functions to apply to Point3D objects.
+
+    emgsignal_funcs : list of callable, optional
+        Functions to apply to EMGSignal objects.
+
+    forceplatform_funcs : list of callable, optional
+        Functions to apply to ForcePlatform objects.
+    """
+
+    def __init__(
+        self,
+        signal1d_funcs: List[Callable[[Signal1D], Signal1D]] = [],
+        signal3d_funcs: List[Callable[[Signal3D], Signal3D]] = [],
+        point3d_funcs: List[Callable[[Point3D], Point3D]] = [],
+        emgsignal_funcs: List[Callable[[EMGSignal], EMGSignal]] = [],
+        forceplatform_funcs: List[Callable[[ForcePlatform], ForcePlatform]] = [],
+    ):
+        self.pipeline: Dict[type, List[Callable[[Any], Any]]] = {
+            Signal1D: signal1d_funcs,
+            Signal3D: signal3d_funcs,
+            Point3D: point3d_funcs,
+            EMGSignal: emgsignal_funcs,
+            ForcePlatform: forceplatform_funcs,
+        }
+
+    def apply(self, *objects: Any, inplace: bool = False):
+        """
+        Apply the processing pipeline to the given objects.
+
+        Parameters
+        ----------
+        *objects : variable length argument list
+            Objects to process. Can be individual Signal1D, Signal3D, Point3D,
+            EMGSignal, ForcePlatform, or StateFrame instances.
+        inplace : bool, optional
+            If True, modifies the objects in place. If False, returns the processed copies.
+
+        Returns
+        -------
+        list or None
+            If inplace is False, returns a list of processed objects. Otherwise, returns None.
+        """
+        processed_objects = []
+
+        for obj in objects:
+            if isinstance(obj, StateFrame):
+                sf = obj if inplace else deepcopy(obj)
+                attr_map = {
+                    Signal1D: sf.signals1d,
+                    Signal3D: sf.signals3d,
+                    Point3D: sf.points3d,
+                    EMGSignal: sf.emgsignals,
+                    ForcePlatform: sf.forceplatforms,
+                }
+                for cls, funcs in self.pipeline.items():
+                    items = attr_map.get(cls, {})
+                    for key, val in items.items():
+                        for func in funcs:
+                            val = func(val)
+                        sf.add(**{key: val}, strip=False, reset_index=False)  # type: ignore
+                if not inplace:
+                    processed_objects.append(sf)
+            else:
+                obj_type = type(obj)
+                funcs = self.pipeline.get(obj_type, [])
+                if not inplace:
+                    obj = deepcopy(obj)
+                for func in funcs:
+                    obj = func(obj)
+                if not inplace:
+                    processed_objects.append(obj)
+
+        if not inplace:
+            return processed_objects
+
+
 @runtime_checkable
-class LabTest(Protocol):
+class TestProtocol(Protocol):
     """
     abstract class defining the general methods expected from a test
 
@@ -599,6 +685,12 @@ class LabTest(Protocol):
         except Exception:
             raise RuntimeError(f"an error occurred importing {file_path}.")
 
+    @property
+    def processing_pipeline(self) -> ProcessingPipeline: ...
+
+    @property
+    def normative_values(self) -> pd.DataFrame: ...
+
 
 @runtime_checkable
 class TestBattery(Protocol):
@@ -625,7 +717,7 @@ class TestBattery(Protocol):
 
     # * class variables
 
-    _tests: list[LabTest]
+    _tests: list[TestProtocol]
 
     # * attributes
 
@@ -765,11 +857,11 @@ class TestBattery(Protocol):
 
     # * constructor
 
-    def __init__(self, *tests: LabTest):
+    def __init__(self, *tests: TestProtocol):
         # check the inputs
         msg = "'tests' must be LabTest subclassed objects."
         for test in tests:
-            if not isinstance(test, LabTest):
+            if not isinstance(test, TestProtocol):
                 raise ValueError(msg)
 
         # store the tests

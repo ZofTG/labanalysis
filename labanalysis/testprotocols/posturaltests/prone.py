@@ -10,7 +10,7 @@ from os.path import dirname, join
 
 from ...frames import StateFrame
 from .upright import UprightStance
-from ..base import LabTest
+from ...tests import TestProtocol
 from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go
@@ -342,7 +342,7 @@ class ProneStance(UprightStance):
         return super().from_stateframe(obj)
 
 
-class PlankTest(ProneStance, LabTest):
+class PlankTest(ProneStance, TestProtocol):
     """
     Class handling the data processing and analysis of the collected data about
     a plank test.

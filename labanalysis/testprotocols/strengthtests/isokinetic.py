@@ -18,7 +18,7 @@ from plotly.subplots import make_subplots
 
 from ...io.read.biostrength import BiostrengthProduct
 from ... import signalprocessing as sp
-from ..base import LabTest
+from ...tests import TestProtocol
 
 #! CONSTANTS
 
@@ -28,7 +28,7 @@ __all__ = ["Isokinetic1RMTest"]
 #! CLASSES
 
 
-class Isokinetic1RMTest(LabTest):
+class Isokinetic1RMTest(TestProtocol):
     """
     Isokinetic Test 1RM instance
 

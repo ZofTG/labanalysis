@@ -3,8 +3,8 @@
 #! IMPORTS
 
 
-from itertools import product
 import warnings
+from itertools import product
 from os.path import exists
 from typing import Literal, Union
 
@@ -16,8 +16,8 @@ from ...constants import (
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
 from ...frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
-from ...signalprocessing import butterworth_filt, fillna
-from ..base import LabTest
+from ...signalprocessing import butterworth_filt, fillna, rms_filt
+from ...tests import TestProtocol, ProcessingPipeline
 
 #! CONSTANTS
 
@@ -654,7 +654,7 @@ class GaitCycle(GaitObject):
         self._side = side
 
 
-class GaitTest(GaitObject, LabTest):
+class GaitTest(GaitObject, TestProtocol):
     """
     detect steps and strides from kinematic/kinetic data and extract biofeedback
     info
@@ -726,6 +726,73 @@ class GaitTest(GaitObject, LabTest):
     def cycles(self):
         """the detected gait cycles"""
         return self._cycles
+
+    @property
+    def processing_pipeline(self):
+
+        # emg
+        def process_emg(channel: EMGSignal):
+            out = channel - channel.mean()
+            fsamp = 1 / np.mean(np.diff(out.index.to_numpy()))
+            out = out.apply(
+                butterworth_filt,
+                fcut=[20, 450],
+                fsamp=fsamp,
+                order=4,
+                ftype="bandpass",
+                phase_corrected=True,
+                raw=True,
+            )
+            out = out.apply(
+                rms_filt,
+                order=int(0.2 * fsamp),
+                pad_style="reflect",
+                offset=0.5,
+                raw=True,
+            )
+            return out
+
+        # points3d
+        def process_point3d(point: Point3D):
+            out = point.copy()
+            out.loc[out.index, out.columns] = fillna(out.values)
+            fsamp = 1 / np.mean(np.diff(out.index.to_numpy()))
+            out = out.apply(
+                butterworth_filt,
+                fcut=10,
+                fsamp=fsamp,
+                order=4,
+                ftype="lowpass",
+                phase_corrected=True,
+                raw=True,
+            )
+            return out
+
+        # forceplatforms
+        def process_forceplatforms(fp: ForcePlatform):
+            out = fp.copy()
+            out.loc[out.index, out.origin.columns] = fillna(out.origin.values)
+            out.loc[out.index, out.force.columns] = fillna(out.force.values, 0)
+            out.loc[out.index, out.torque.columns] = fillna(out.torque.values, 0)
+            fsamp = 1 / np.mean(np.diff(out.index.to_numpy()))
+            out = out.apply(
+                butterworth_filt,
+                fcut=[10, 100],
+                fsamp=fsamp,
+                order=4,
+                ftype="bandstop",
+                phase_corrected=True,
+                raw=True,
+            )
+            return out
+
+        return ProcessingPipeline(
+            signal1d_funcs=[],
+            signal3d_funcs=[],
+            emgsignal_funcs=[process_emg],
+            point3d_funcs=[process_point3d],
+            forceplatform_funcs=[process_forceplatforms],
+        )
 
     # * methods
 
@@ -900,6 +967,7 @@ class GaitTest(GaitObject, LabTest):
             antpos_axis=antpos_axis,
             **extra_signals,
         )
+        self.processing_pipeline.apply(self, inplace=True)
 
     @classmethod
     def from_tdf_file(

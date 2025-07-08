@@ -2,16 +2,14 @@
 
 #! IMPORTS
 
-import subprocess
-from os import listdir
-from os.path import dirname, join, sep
+import sys
+from os.path import join, dirname, abspath
+
+sys.path += [join(dirname(abspath(__file__)), "single_tests")]
+
+from single_tests import test_read_tdf
 
 #! MAIN
 
 if __name__ == "__main__":
-    folder_path = join(dirname(__file__), "single_tests")
-    for filename in listdir(folder_path):
-        if filename.endswith(".py"):
-            file_path = join(folder_path, filename)
-            print(f"Running {file_path.rsplit(sep, 1)[-1]}...")
-            subprocess.run(["python", file_path], check=True)
+    test_read_tdf.run_test()
