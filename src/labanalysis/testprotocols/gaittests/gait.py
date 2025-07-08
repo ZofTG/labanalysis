@@ -3,33 +3,32 @@
 #! IMPORTS
 
 
-from os.path import exists
+from itertools import product
 import warnings
-from typing import Any, Iterable, Literal
+from os.path import exists
+from typing import Literal, Union
 
 import numpy as np
 import pandas as pd
 
-from ...io.read.btsbioengineering import read_tdf
-from ... import signalprocessing as labsp
 from ...constants import (
     DEFAULT_MINIMUM_CONTACT_GRF_N,
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
+from ...frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
+from ...signalprocessing import butterworth_filt, fillna
 from ..base import LabTest
-from ...frames import *
-
 
 #! CONSTANTS
 
 
-__all__ = ["GaitCycle", "GaitTest"]
+__all__ = ["GaitObject", "GaitCycle", "GaitTest"]
 
 
 #! CLASSESS
 
 
-class GaitObject:
+class GaitObject(StateFrame):
     """
     basic gait object class.
 
@@ -93,18 +92,10 @@ class GaitObject:
     # * class variables
 
     _algorithm: Literal["kinetics", "kinematics"]
-    _left_heel: Point3D | None
-    _right_heel: Point3D | None
-    _left_toe: Point3D | None
-    _right_toe: Point3D | None
-    _left_meta_head: Point3D | None
-    _right_meta_head: Point3D | None
-    _grf: ForcePlatform | None
     _vertical_axis: Literal["X", "Y", "Z"]
     _antpos_axis: Literal["X", "Y", "Z"]
     _grf_threshold: float
     _height_threshold: float
-    _extra_signals: list[Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform]
 
     # * constructor
 
@@ -122,8 +113,9 @@ class GaitObject:
         height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
-        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
+        **extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
+        super().__init__()
 
         # set the algorithm
         self.set_algorithm(algorithm)
@@ -144,11 +136,10 @@ class GaitObject:
         self.set_left_toe(left_toe)
         self.set_right_toe(right_toe)
         self.set_ground_reaction_force(grf)
-        self._extra_signals = []
-        for signal in extra_signals:
-            self.add_extra_signal(signal)
-
-    # * attributes
+        self._extra_signals = {}
+        self.add_extra_signals(**extra_signals)
+        self.strip(True)
+        self.reset_index(True)
 
     @property
     def algorithm(self):
@@ -158,51 +149,90 @@ class GaitObject:
     @property
     def resultant_force(self):
         """return the ground reaction force data"""
-        if self._grf is None:
+        grf = self.ground_reaction_force
+        if grf is None:
             return None
-        return self._grf.force
+        return grf.force
 
     @property
     def centre_of_pressure(self):
         """return the center of pressure data"""
-        if self._grf is None:
+        grf = self.ground_reaction_force
+        if grf is None:
             return None
-        return self._grf.origin
+        return grf.origin
 
     @property
     def ground_reaction_force(self):
         """return the ground reaction force object"""
-        return self._grf
+        out = self["ground_reaction_force"]
+        if out.shape[1] == 0:
+            return None
+        return ForcePlatform.from_dataframe(out)  # type: ignore
 
     @property
     def left_heel(self):
         """return the left heel label"""
-        return self._left_heel
+        out = self["left_heel"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
 
     @property
     def right_heel(self):
         """return the right heel label"""
-        return self._right_heel
+        out = self["right_heel"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
 
     @property
     def left_toe(self):
         """return the left toe label"""
-        return self._left_toe
+        out = self["left_toe"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
 
     @property
     def right_toe(self):
         """return the right toe label"""
-        return self._right_toe
+        out = self["right_toe"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
 
     @property
     def left_meta_head(self):
         """return the left metatarsal head label"""
-        return self._left_meta_head
+        out = self["left_metatarsal_head"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
 
     @property
     def right_meta_head(self):
         """return the right metatarsal head label"""
-        return self._right_meta_head
+        out = self["right_metatarsal_head"]
+        if out.shape[1] == 0:
+            return None
+        return Point3D.from_dataframe(out)  # type: ignore
+
+    @property
+    def extra_signals(self):
+        """return the extra signals"""
+        refs = product(["left", "right"], ["toe", "heel", "metatarsal_head"])
+        refs = ["_".join(i) for i in refs] + ["ground_reaction_force"]
+        cols = [i for i in self.columns if i[1] not in refs]
+        signals = np.unique([i[1] for i in cols])
+        out: dict[str, Union[Signal1D, Signal3D, EMGSignal, Point3D, ForcePlatform]] = (
+            {}
+        )
+        for signal in signals:
+            dims = [i[2:] for i in cols if i[1] == signal]
+            stype = eval([i[0] for i in cols if i[1] == signal][0])
+            out[signal] = stype.from_dataframe(self[dims])
+        return out
 
     @property
     def vertical_axis(self):
@@ -218,7 +248,7 @@ class GaitObject:
     def lateral_axis(self):
         """return the anterior-posterior axis"""
         used = [self.vertical_axis, self.anteroposterior_axis]
-        axes = [Literal['X'], Literal['Y'], Literal['Z']]
+        axes = [Literal["X"], Literal["Y"], Literal["Z"]]
         return [i for i in axes if i not in used][0]
 
     @property
@@ -231,21 +261,11 @@ class GaitObject:
         """return the height threshold"""
         return self._height_threshold
 
-    # * methods
-
-    def _check_input(self, obj: Any, target: type | Iterable[type]):
-        """check if the provided object is None or a Point3D object and return it"""
-        if isinstance(target, Iterable):
-            target = tuple(i for i in target)
-        if obj is None or isinstance(obj, target):
-            return obj
-        raise ValueError(f"obj must be a {type} instance or None.")
-
     def _filter_kinetics(self, grf: np.ndarray, time: np.ndarray):
         """filter the ground reaction force signal"""
         fsamp = float(1 / np.mean(np.diff(time)))
-        grff = labsp.fillna(grf.astype(float).flatten(), value=0)
-        grff = labsp.butterworth_filt(
+        grff = fillna(grf.astype(float).flatten(), value=0)
+        grff = butterworth_filt(
             arr=grff.astype(float).flatten(),  # type: ignore
             fcut=[10, 100],
             fsamp=fsamp,
@@ -258,8 +278,8 @@ class GaitObject:
     def _filter_kinematics(self, coord: np.ndarray, time: np.ndarray):
         """filter vertical coordinates from kinematic data"""
         fsamp = float(1 / np.mean(np.diff(time)))
-        fcoord = labsp.fillna(coord).astype(float).flatten()  # type: ignore
-        fcoord = labsp.butterworth_filt(
+        fcoord = fillna(coord).astype(float).flatten()  # type: ignore
+        fcoord = butterworth_filt(
             arr=np.array([fcoord - np.min(fcoord)]).astype(float).flatten(),
             fcut=6,
             fsamp=fsamp,
@@ -348,52 +368,58 @@ class GaitObject:
 
         self._algorithm = algo
 
-    def set_left_heel(self, heel: Point3D | None):
+    def set_left_heel(self, obj: Point3D | None):
         """set the left heel coordinates."""
-        self._left_heel = self._check_input(heel, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"left_heel": obj})
 
-    def set_right_heel(self, heel: Point3D | None):
+    def set_right_heel(self, obj: Point3D | None):
         """set the right heel coordinates."""
-        self._right_heel = self._check_input(heel, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"right_heel": obj})
 
-    def set_left_metatarsal_head(self, meta: Point3D | None):
+    def set_left_metatarsal_head(self, obj: Point3D | None):
         """set the left metatarsal head coordinates."""
-        self._left_meta_head = self._check_input(meta, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"left_metatarsal_head": obj})
 
-    def set_right_metatarsal_head(self, meta: Point3D | None):
+    def set_right_metatarsal_head(self, obj: Point3D | None):
         """set the right metatarsal head coordinates."""
-        self._right_meta_head = self._check_input(meta, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"right_metatarsal_head": obj})
 
-    def set_left_toe(self, toe: Point3D | None):
+    def set_left_toe(self, obj: Point3D | None):
         """set the left toe coordinates."""
-        self._left_toe = self._check_input(toe, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"left_toe": obj})
 
-    def set_right_toe(self, toe: Point3D | None):
+    def set_right_toe(self, obj: Point3D | None):
         """set the right toe coordinates."""
-        self._right_toe = self._check_input(toe, Point3D)
+        if obj is not None:
+            if not isinstance(obj, Point3D):
+                self.add(**{"right_toe": obj})
 
-    def set_ground_reaction_force(self, grf: ForcePlatform | None):
+    def set_ground_reaction_force(self, obj: ForcePlatform | None):
         """set the ground reaction force data"""
-        self._grf = self._check_input(grf, ForcePlatform)
+        if obj is not None:
+            if not isinstance(obj, ForcePlatform):
+                self.add(**{"ground_reaction_force": obj})
 
-    def add_extra_signal(self, signal: Signal1D | Signal3D | Point3D | EMGSignal | ForcePlatform):
+    def add_extra_signals(
+        self, **signals: Signal1D | Signal3D | Point3D | EMGSignal | ForcePlatform
+    ):
         """add extra signals to the object"""
         types = (Signal1D, Signal3D, Point3D, EMGSignal, ForcePlatform)
-        self._extra_signals += [self._check_input(signal, types)]
-
-    def remove_extra_signal(self, name:str):
-        """remove the first signal having the provided name"""
-        if not isinstance(name, str):
-            raise ValueError("'name' must be a str instance.")
-        for signal in self._extra_signals:
-            if signal.name == name:
-                self._extra_signals.remove(signal)
-
-    def pop_extra_signal(self, index:int):
-        """remove the extra signal at the given index"""
-        if not isinstance(index, int):
-            raise ValueError("'index' must be an int instance.")
-        return self._extra_signals.pop(index)
+        for key, signal in signals.items():
+            if not isinstance(signal, types):
+                msg = f"{key} type not supported. Signals must be any of {types}."
+                raise TypeError(msg)
+        self.add(strip=False, reset_index=False, **signals)
 
 
 class GaitCycle(GaitObject):
@@ -494,7 +520,7 @@ class GaitCycle(GaitObject):
         height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
-        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
+        **extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
         super().__init__(
             algorithm=algorithm,
@@ -509,7 +535,7 @@ class GaitCycle(GaitObject):
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
-            *extra_signals,
+            **extra_signals,
         )
         self.set_side(side)
 
@@ -619,11 +645,11 @@ class GaitCycle(GaitObject):
         super().set_algorithm(algorithm)
         self._update_events()
 
-    def set_side(self, side:Literal['right', 'left']):
+    def set_side(self, side: Literal["right", "left"]):
         """set the cycle side"""
         if not isinstance(side, (Literal, str)):
             raise ValueError("'side' must be 'left' or 'right'.")
-        if side not in ['left', 'right']:
+        if side not in ["left", "right"]:
             raise ValueError("'side' must be 'left' or 'right'.")
         self._side = side
 
@@ -773,10 +799,9 @@ class GaitTest(GaitObject, LabTest):
         if len(self.cycles) > 0:
             out = []
             for i, cycle in enumerate(self.cycles):
-                dfr = cycle.to_dataframe()
-                dfr.insert(0, "Side", np.tile(str(cycle.side), dfr.shape[0]))
-                dfr.insert(0, "Cycle", np.tile(i + 1, dfr.shape[0]))
-                out += [dfr]
+                cycle.insert(0, "Side", np.tile(str(cycle.side), cycle.shape[0]))
+                cycle.insert(0, "Cycle", np.tile(i + 1, cycle.shape[0]))
+                out += [cycle]
             return pd.concat(out).drop_duplicates().sort_index(axis=0)
         return pd.DataFrame()
 
@@ -858,7 +883,7 @@ class GaitTest(GaitObject, LabTest):
         height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
-        *extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
+        **extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
         super().__init__(
             algorithm=algorithm,
@@ -873,7 +898,7 @@ class GaitTest(GaitObject, LabTest):
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
-            *extra_signals,
+            **extra_signals,
         )
 
     @classmethod
@@ -955,62 +980,44 @@ class GaitTest(GaitObject, LabTest):
         """
         if not isinstance(file, str) or not exists(file):
             raise ValueError("'file' must be the path to an existing .tdf file.")
-        tdf = read_tdf(file)
-        args = dict(algorithm=algorithm,
-            grf_threshold=grf_threshold,
-            height_threshold=height_threshold,
-            vertical_axis=vertical_axis,
-            antpos_axis=antpos_axis,)
-        points = tdf['CAMERA']['TRACKED']['TRACKS']  # type: ignore
-        if points is not None:
-            targets = {
-                'left_heel': left_heel,
-                'right_heel': right_heel,
-                'left_toe': left_toe,
-                'right_toe': right_toe,
-                'left_meta_head': left_meta_head,
-                'right_meta_head': right_meta_head,
-            }
-            lbls = points.columns.get_level_values(0).unique().tolist()
-            for target, lbl in targets.items():
-                if lbl is not None and lbl in lbls:
-                    obj = Point3D(
-                        xarr=points[lbl]['X'].values.astype(float).flatten(),
-                        yarr=points[lbl]['Y'].values.astype(float).flatten(),
-                        zarr=points[lbl]['Z'].values.astype(float).flatten(),
-                        time=points.index.to_numpy(),
-                        name=lbl,
-                        strip=True,
-                        reset_index=False,
-                    )
-                else:
-                    obj = None
-                args[target] = obj
-
-            targets = [left_heel, right_heel, left_toe, right_toe, left_meta_head, right_meta_head]
-            for target in relevant:
-
-                
-        obj = cls(
+        frame = StateFrame.from_tdf_file(file)
+        points3d = frame.points3d
+        markers = [
+            left_heel,
+            right_heel,
+            left_toe,
+            right_toe,
+            left_meta_head,
+            right_meta_head,
+        ]
+        markers = [i for i in markers if i is not None]
+        fps = frame.forceplatforms
+        extra_signals: dict[
+            str, Union[Signal1D, Signal3D, EMGSignal, Point3D, ForcePlatform]
+        ] = {}
+        extra_signals.update(**{i: v for i, v in points3d.items() if i not in markers})
+        extra_signals.update(
+            **{i: v for i, v in fps.items() if grf is None or i != grf}
+        )
+        extra_signals.update(**frame.signals1d)
+        extra_signals.update(**frame.signals3d)
+        extra_signals.update(**frame.emgsignals)
+        return cls(
             algorithm=algorithm,
             grf_threshold=grf_threshold,
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
-
-        )
-
-            frame=StateFrame.from_tdf_file(file=file),
-            algorithm=algorithm,
-            left_heel=left_heel,
-            right_heel=right_heel,
-            left_toe=left_toe,
-            right_toe=right_toe,
-            left_meta_head=left_meta_head,
-            right_meta_head=right_meta_head,
-            grf=grf,
-            grf_threshold=grf_threshold,
-            height_threshold=height_threshold,
-            vertical_axis=vertical_axis,
-            antpos_axis=antpos_axis,
-        )
+            left_heel=points3d[left_heel] if left_heel in markers else None,
+            right_heel=points3d[right_heel] if right_heel in markers else None,
+            left_toe=points3d[left_toe] if left_toe in markers else None,
+            right_toe=points3d[right_toe] if right_toe in markers else None,
+            left_meta_head=(
+                points3d[left_meta_head] if left_meta_head in markers else None
+            ),
+            right_meta_head=(
+                points3d[right_meta_head] if right_meta_head in markers else None
+            ),
+            grf=fps[grf] if grf else None,
+            **extra_signals,
+        )  # type: ignore

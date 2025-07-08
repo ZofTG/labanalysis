@@ -4,3 +4,4 @@
 
 from .runningtest import *
 from .walkingtest import *
+from .gait import *

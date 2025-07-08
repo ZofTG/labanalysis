@@ -140,8 +140,8 @@ class CounterMovementJump(SquatJump):
         """
         # get the time instant corresponding to the start of the concentric
         # phase
-        t_end = self.to_dataframe().index.to_numpy()
-        t_end = t_end[t_end < self.concentric_phase.to_dataframe().index[0]]
+        t_end = self.index.to_numpy()
+        t_end = t_end[t_end < self.concentric_phase.index[0]]
         t_end = float(round(t_end[-1], 3))
 
         # get the last peak in vertical position before the concentric phase

@@ -1,3 +1,6 @@
 scikit-learn
 plotly
 sympy
+pandas
+xarray
+pint

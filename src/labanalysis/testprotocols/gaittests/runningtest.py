@@ -8,14 +8,18 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.express.colors as colors
 import plotly.graph_objects as go
-import plotly.express as px
 
-from ... import signalprocessing as labsp
+from ...constants import (
+    DEFAULT_MINIMUM_CONTACT_GRF_N,
+    DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+)
+from ...frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D
 from ...plotting.plotly import bars_with_normative_bands
-from ...frames import StateFrame
-from . import gait
+from ...signalprocessing import find_peaks
+from .gait import GaitCycle, GaitTest
 
 __all__ = ["RunningStep", "RunningTest"]
 
@@ -23,7 +27,7 @@ __all__ = ["RunningStep", "RunningTest"]
 #! CLASSESS
 
 
-class RunningStep(gait.GaitCycle):
+class RunningStep(GaitCycle):
     """
     basic running step class.
 
@@ -139,11 +143,11 @@ class RunningStep(gait.GaitCycle):
         """find the footstrike time using the kinetics algorithm"""
 
         # get the contact phase samples
-        if self.resultant_force is None:
+        grf = self.resultant_force
+        if grf is None:
             raise ValueError("no ground reaction force data available.")
-        vgrf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
-        time = self.resultant_force.index.to_numpy()
+        vgrf = grf[self.vertical_axis].values.astype(float).flatten()
+        time = grf.index.to_numpy()
         grff = self._filter_kinetics(vgrf, time)
         grfn = grff / np.max(grff)
         mask = np.where((grfn < self.height_threshold)[: np.argmax(grfn)])[0]
@@ -162,14 +166,13 @@ class RunningStep(gait.GaitCycle):
         contact_foot = self.side.lower()
         for marker in ["heel", "meta_head"]:
             lbl = f"{contact_foot}_{marker}"
-            dfr = getattr(self, lbl)
-            if dfr is not None:
-                dfr = dfr[dfr.columns.get_level_values(0)[0]]
-                vcoords[lbl] = dfr[self.vertical_axis]
-                vcoords[lbl] = vcoords[lbl].values.astype(float).flatten()
+            val = self[f"{contact_foot}_{marker}"]
+            if val is None:
+                continue
+            vcoords[lbl] = val[self.vertical_axis].values.astype(float).flatten()
 
         # filter the signals and extract the first contact time
-        time = self.markers.index.to_numpy()
+        time = self.index.to_numpy()
         fs_time = []
         for val in vcoords.values():
             val = self._filter_kinematics(val, time)
@@ -186,11 +189,11 @@ class RunningStep(gait.GaitCycle):
 
     def _midstance_kinetics(self):
         """find the midstance time using the kinetics algorithm"""
-        if self.resultant_force is None:
+        grf = self.resultant_force
+        if grf is None:
             raise ValueError("no ground reaction force data available.")
-        time = self.resultant_force.index.to_numpy()
-        vgrf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
-        vgrf = vgrf[self.vertical_axis].values.astype(float).flatten()
+        vgrf = grf[self.vertical_axis].values.astype(float).flatten()
+        time = grf.index.to_numpy()
         grff = self._filter_kinetics(vgrf, time)
         return float(time[np.argmax(grff)])
 
@@ -198,17 +201,16 @@ class RunningStep(gait.GaitCycle):
         """find the midstance time using the kinematics algorithm"""
         # get the available markers
         lbls = [f"{self.side.lower()}_{i}" for i in ["heel", "toe"]]
-        meta_lbl = f"{self.side.lower()}_meta_head"
+        meta_lbl = f"{self.side.lower()}_metatarsal_head"
         meta_dfr = getattr(self, meta_lbl)
         if meta_dfr is not None:
             lbls += [meta_lbl]
 
         # get the mean vertical signal
-        time = self.markers.index.to_numpy()
+        time = self.index.to_numpy()
         ref = np.zeros_like(time)
         for lbl in lbls:
-            val = getattr(self, lbl)
-            val = val[val.columns.get_level_values(0)[0]][self.vertical_axis]
+            val = self[lbl][self.vertical_axis]
             val = val.values.astype(float).flatten()
             ref += self._filter_kinematics(val, time)
         ref /= len(lbls)
@@ -220,24 +222,23 @@ class RunningStep(gait.GaitCycle):
 
     def __init__(
         self,
-        side: Literal["LEFT", "RIGHT"],
-        frame: StateFrame,
+        side: Literal["left", "right"],
         algorithm: Literal["kinematics", "kinetics"] = "kinematics",
-        left_heel: str | None = "lHeel",
-        right_heel: str | None = "rHeel",
-        left_toe: str | None = "lToe",
-        right_toe: str | None = "rToe",
-        left_meta_head: str | None = "lMid",
-        right_meta_head: str | None = "rMid",
-        grf: str | None = "fRes",
-        grf_threshold: float | int = gait.DEFAULT_MINIMUM_CONTACT_GRF_N,
-        height_threshold: float | int = gait.DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+        left_heel: Point3D | None = None,
+        right_heel: Point3D | None = None,
+        left_toe: Point3D | None = None,
+        right_toe: Point3D | None = None,
+        left_meta_head: Point3D | None = None,
+        right_meta_head: Point3D | None = None,
+        grf: ForcePlatform | None = None,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
+        **extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
         super().__init__(
             side=side,
-            frame=frame,
             algorithm=algorithm,
             left_heel=left_heel,
             right_heel=right_heel,
@@ -250,10 +251,11 @@ class RunningStep(gait.GaitCycle):
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
+            **extra_signals,
         )
 
 
-class RunningTest(gait.GaitTest):
+class RunningTest(GaitTest):
     """
     generate a RunningTest instance
 
@@ -322,13 +324,15 @@ class RunningTest(gait.GaitTest):
 
         # get toe-off times
         tos = []
-        time = self.markers.index.to_numpy()
+        time = self.index.to_numpy()
         fsamp = float(1 / np.mean(np.diff(time)))
-        for side in ["l", "r"]:
+        for lbl in ["left_toe", "right_toe"]:
 
             # get the vertical coordinates of the toe markers
-            arr = self.markers[f"{side}_toe"][self.vertical_axis]
-            arr = arr.values.astype(float).flatten()
+            obj = self[lbl]
+            if obj.shape[1] == 0:
+                raise ValueError(f"{lbl} is missing.")
+            arr = obj[self.vertical_axis].values.astype(float).flatten()
 
             # filter and rescale
             ftoe = self._filter_kinematics(arr, time)
@@ -338,14 +342,15 @@ class RunningTest(gait.GaitTest):
             dsamples = int(round(fsamp / 2))
 
             # get the peaks at each cycle
-            pks = labsp.find_peaks(ftoe, 0.5, dsamples)
+            pks = find_peaks(ftoe, 0.5, dsamples)
 
             # for each peak obtain the location of the last sample at the
             # required height threshold
+            side = lbl.split("_")[0]
             for pk in pks:
                 idx = np.where(ftoe[:pk] <= self.height_threshold)[0]
                 if len(idx) > 0:
-                    line = pd.Series({"time": time[idx[-1]], "side": side})
+                    line = pd.Series({"Time": time[idx[-1]], "Side": side})
                     tos += [pd.DataFrame(line).T]
 
         # wrap the events
@@ -353,72 +358,51 @@ class RunningTest(gait.GaitTest):
             raise ValueError("no toe-offs have been found.")
         tos = pd.concat(tos, ignore_index=True)
         tos = tos.drop_duplicates()
-        tos = tos.sort_values("time")
+        tos = tos.sort_values("Time")
         tos = tos.reset_index(drop=True)
 
         # check the alternation of the steps
-        sides = tos.side.values
+        sides = tos.Side.values
         if not all(s0 != s1 for s0, s1 in zip(sides[:-1], sides[1:])):
             warnings.warn("Left-Right steps alternation not guaranteed.")
         for i0, i1 in zip(tos.index[:-1], tos.index[1:]):  # type: ignore
-            t0 = float(tos.time.values[i0])
-            t1 = float(tos.time.values[i1])
+            t0 = float(tos.Time.values[i0])
+            t1 = float(tos.Time.values[i1])
+            step = self.slice(t0, t1)
             args = {
-                "frame": self.slice(from_time=t0, to_time=t1),
-                "side": "LEFT" if tos.side.values[i1] == "l" else "RIGHT",
+                "side": tos.Side.values[i1],
                 "grf_threshold": self.grf_threshold,
                 "height_threshold": self.height_threshold,
                 "algorithm": self.algorithm,
                 "vertical_axis": self.vertical_axis,
                 "antpos_axis": self.anteroposterior_axis,
             }
-
-            if self.left_heel is not None:
-                col = self.left_heel.columns.get_level_values(0)[0]
-                args["left_heel"] = col
-
-            if self.right_heel is not None:
-                col = self.right_heel.columns.get_level_values(0)[0]
-                args["right_heel"] = col
-
-            if self.left_toe is not None:
-                col = self.left_toe.columns.get_level_values(0)[0]
-                args["left_toe"] = col
-
-            if self.right_toe is not None:
-                col = self.right_toe.columns.get_level_values(0)[0]
-                args["right_toe"] = col
-
-            if self.left_meta_head is not None:
-                col = self.left_meta_head.columns.get_level_values(0)[0]
-                args["left_meta_head"] = col
-
-            if self.right_meta_head is not None:
-                col = self.right_meta_head.columns.get_level_values(0)[0]
-                args["right_meta_head"] = col
-
-            if self.resultant_force is not None:
-                args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
-
-            self._cycles += [RunningStep(**args)]  # type: ignore
+            args["left_heel"] = step.left_heel
+            args["right_heel"] = step.right_heel
+            args["left_toe"] = step.left_toe
+            args["right_toe"] = step.right_toe
+            args["left_meta_head"] = step.left_meta_head
+            args["right_meta_head"] = step.right_meta_head
+            args["grf"] = step.ground_reaction_force
+            self._cycles += [RunningStep(**step.extra_signals, **args)]  # type: ignore
 
     def _find_cycles_kinetics(self):
         """find the gait cycles using the kinetics algorithm"""
-        if self.resultant_force is None or self.centre_of_pressure is None:
+        if self.ground_reaction_force is None:
             raise ValueError("no ground reaction force data available.")
 
         # get the grf and the latero-lateral COP
-        time = self.resultant_force.index.to_numpy()
+        time = self.ground_reaction_force.index.to_numpy()
         axs = [self.vertical_axis, self.anteroposterior_axis]
         axs = [i for i in ["X", "Y", "Z"] if i not in axs]
-        mlc = self.centre_of_pressure[
-            self.centre_of_pressure.columns.get_level_values(0)[0]
-        ].loc[:, axs]
-        mlc = mlc.values.astype(float).flatten()
-        grf = self.resultant_force[self.resultant_force.columns.get_level_values(0)[0]]
+        cop_ml = self.centre_of_pressure
+        grf = self.resultant_force
+        if cop_ml is None or grf is None:
+            raise RuntimeError("ground_reaction_force data not found.")
         grf = grf[self.vertical_axis].values.astype(float).flatten()
+        cop_ml = cop_ml[axs].values.astype(float).flatten()
         grff = self._filter_kinetics(grf, time)
-        mlcf = self._filter_kinetics(mlc, time)
+        mlcf = self._filter_kinetics(cop_ml, time)
 
         # check if there are flying phases
         flights = grf <= self.grf_threshold
@@ -434,7 +418,7 @@ class RunningTest(gait.GaitTest):
         grfn = grff / np.max(grff)
         toi = []
         fsi = []
-        pks = labsp.find_peaks(grfn, 0.5, dsamples)
+        pks = find_peaks(grfn, 0.5, dsamples)
         for pk in pks:
             to = np.where(grfn[pk:] < self.height_threshold)[0]
             fs = np.where(grfn[:pk] < self.height_threshold)[0]
@@ -456,15 +440,12 @@ class RunningTest(gait.GaitTest):
         sides = []
         for i in np.arange(len(pos)):
             if evens < odds:
-                sides += ["LEFT" if i % 2 == 0 else "RIGHT"]
+                sides += ["left" if i % 2 == 0 else "right"]
             else:
-                sides += ["LEFT" if i % 2 != 0 else "RIGHT"]
+                sides += ["left" if i % 2 != 0 else "right"]
 
         for to, ed, side in zip(toi[:-1], toi[1:], sides):
-            t0 = float(time[to])
-            t1 = float(time[ed])
             args = {
-                "frame": self.slice(from_time=t0, to_time=t1),
                 "side": side,
                 "grf_threshold": self.grf_threshold,
                 "height_threshold": self.height_threshold,
@@ -472,41 +453,14 @@ class RunningTest(gait.GaitTest):
                 "vertical_axis": self.vertical_axis,
                 "antpos_axis": self.anteroposterior_axis,
             }
-            if self.left_heel is not None:
-                col = self.left_heel.columns.get_level_values(0)[0]
-                args["left_heel"] = col
-            else:
-                args["left_heel"] = None
-            if self.right_heel is not None:
-                col = self.right_heel.columns.get_level_values(0)[0]
-                args["right_heel"] = col
-            else:
-                args["right_heel"] = None
-            if self.left_toe is not None:
-                col = self.left_toe.columns.get_level_values(0)[0]
-                args["left_toe"] = col
-            else:
-                args["left_toe"] = None
-            if self.right_toe is not None:
-                col = self.right_toe.columns.get_level_values(0)[0]
-                args["right_toe"] = col
-            else:
-                args["right_toe"] = None
-            if self.left_meta_head is not None:
-                col = self.left_meta_head.columns.get_level_values(0)[0]
-                args["left_meta_head"] = col
-            else:
-                args["left_meta_head"] = None
-            if self.right_meta_head is not None:
-                col = self.right_meta_head.columns.get_level_values(0)[0]
-                args["right_meta_head"] = col
-            else:
-                args["right_meta_head"] = None
-            if self.resultant_force is not None:
-                args["grf"] = self.resultant_force.columns.get_level_values(0)[0]
-            else:
-                args["grf"] = None
-            self._cycles += [RunningStep(**args)]  # type: ignore
+            args["left_heel"] = self.left_heel
+            args["right_heel"] = self.right_heel
+            args["left_toe"] = self.left_toe
+            args["right_toe"] = self.right_toe
+            args["left_meta_head"] = self.left_meta_head
+            args["right_meta_head"] = self.right_meta_head
+            args["grf"] = self.ground_reaction_force
+            self._cycles += [RunningStep(*self.extra_signals, **args)]  # type: ignore
 
     def _make_summary_plot(
         self,
@@ -593,8 +547,8 @@ class RunningTest(gait.GaitTest):
 
             # get the data and the normative bands
             dfr = data.loc[(data.Parameter == param) & (data.Unit == "s")]
-            left = dfr.loc[dfr.Side == "LEFT"].Value.values.astype(float)[0]
-            right = dfr.loc[dfr.Side == "RIGHT"].Value.values.astype(float)[0]
+            left = dfr.loc[dfr.Side == "left"].Value.values.astype(float)[0]
+            right = dfr.loc[dfr.Side == "right"].Value.values.astype(float)[0]
             val = 200 * (right - left) / (right + left)
             if normative_intervals.shape[0] > 0:
                 idx = normative_intervals.Parameter == param
@@ -633,7 +587,7 @@ class RunningTest(gait.GaitTest):
             "right_meta_head",
         ]
         for label in labels:
-            dfr = getattr(self, label.lower())
+            dfr = getattr(self, label)
             if dfr is not None:
                 if label in ["resultant_force"]:
                     ffun = self._filter_kinetics
@@ -646,8 +600,7 @@ class RunningTest(gait.GaitTest):
                     ffun = self._filter_kinematics
                     yaxes = [self.vertical_axis]
                 for yaxis in yaxes:
-                    arr = dfr[dfr.columns.get_level_values(0)[0]]
-                    arr = arr[yaxis].values.astype(float).flatten()
+                    arr = dfr[yaxis].values.astype(float).flatten()
                     time = dfr.index.to_numpy()
                     filt = ffun(arr, time)
                     if label in ["centre_of_pressure"]:
@@ -698,7 +651,7 @@ class RunningTest(gait.GaitTest):
         fig.update_yaxes(matches=None)
 
         # add cycles and thresholds
-        time = self.to_dataframe().index.to_numpy()[[0, -1]]
+        time = self.index.to_numpy()[[0, -1]]
         for row in np.arange(len(labels)):
 
             # update the y-axis label
@@ -717,15 +670,15 @@ class RunningTest(gait.GaitTest):
             for i, cycle in enumerate(self.cycles):
                 color = "purple" if cycle.side == "LEFT" else "green"
                 styles = ["solid", "dash", "dot", "dashdot"]
-                for n, event in enumerate(cycle.absolute_time_events):
-                    time_event = getattr(cycle, event)
+                for n, line in cycle.time_events.iterrows():
+                    event, unit, value = line.values
                     fig.add_trace(
                         row=row + 1,
                         col=1,
                         trace=go.Scatter(
-                            x=[time_event, time_event],
+                            x=[value, value],
                             y=y_range,
-                            line_dash=styles[n % len(styles)],
+                            line_dash=styles[int(n) % len(styles)],  # type: ignore
                             line_color=color,
                             opacity=0.3,
                             mode="lines",
@@ -762,22 +715,21 @@ class RunningTest(gait.GaitTest):
 
     def __init__(
         self,
-        frame: StateFrame,
         algorithm: Literal["kinematics", "kinetics"] = "kinematics",
-        left_heel: str | None = "lHeel",
-        right_heel: str | None = "rHeel",
-        left_toe: str | None = "lToe",
-        right_toe: str | None = "rToe",
-        left_meta_head: str | None = "lMid",
-        right_meta_head: str | None = "rMid",
-        grf: str | None = "fRes",
-        grf_threshold: float | int = gait.DEFAULT_MINIMUM_CONTACT_GRF_N,
-        height_threshold: float | int = gait.DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
+        left_heel: Point3D | None = None,
+        right_heel: Point3D | None = None,
+        left_toe: Point3D | None = None,
+        right_toe: Point3D | None = None,
+        left_meta_head: Point3D | None = None,
+        right_meta_head: Point3D | None = None,
+        grf: ForcePlatform | None = None,
+        grf_threshold: float | int = DEFAULT_MINIMUM_CONTACT_GRF_N,
+        height_threshold: float | int = DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
         vertical_axis: Literal["X", "Y", "Z"] = "Y",
         antpos_axis: Literal["X", "Y", "Z"] = "Z",
+        **extra_signals: Signal1D | Signal3D | EMGSignal | Point3D | ForcePlatform,
     ):
         super().__init__(
-            frame=frame,
             algorithm=algorithm,
             left_heel=left_heel,
             right_heel=right_heel,
@@ -790,4 +742,5 @@ class RunningTest(gait.GaitTest):
             height_threshold=height_threshold,
             vertical_axis=vertical_axis,
             antpos_axis=antpos_axis,
+            **extra_signals,
         )
