@@ -9,7 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from ...plotting.plotly import bars_with_normative_bands
-from ...tests import TestBattery
+from ...testing import TestBattery
 from .counter_movement_jump import CounterMovementJumpTest
 from .side_jump import SideJumpTest
 from .single_leg_jump import SingleLegJumpTest

@@ -24,7 +24,7 @@ import os
 import datetime
 import pandas as pd
 
-from ...tests import Participant
+from ...testing import Participant
 
 
 #! CONSTANTS

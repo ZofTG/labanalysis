@@ -5,9 +5,9 @@
 import sys
 from os.path import dirname, join, abspath
 
-sys.path += [dirname(dirname(dirname(abspath(__file__))))]
+sys.path += [join(dirname(dirname(dirname(abspath(__file__)))))]
 
-from labanalysis.io.read.btsbioengineering import read_tdf
+from src.labanalysis.io.read.btsbioengineering import read_tdf
 
 #! MAIN
 

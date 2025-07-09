@@ -15,7 +15,7 @@ from ... import signalprocessing as sp
 from ...constants import G
 from ...frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
 from ...plotting.plotly import bars_with_normative_bands
-from ...tests import TestProtocol
+from ...testing import TestProtocol
 from scipy.stats.distributions import norm as normal_distribution
 
 __all__ = ["SquatJump", "SquatJumpTest"]

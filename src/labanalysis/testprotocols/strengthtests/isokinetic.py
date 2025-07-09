@@ -18,7 +18,7 @@ from plotly.subplots import make_subplots
 
 from ...io.read.biostrength import BiostrengthProduct
 from ... import signalprocessing as sp
-from ...tests import TestProtocol
+from ...testing import TestProtocol
 
 #! CONSTANTS
 

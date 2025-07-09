@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from labanalysis import constants
+from src.labanalysis import constants
 
 
 #! CLASSES

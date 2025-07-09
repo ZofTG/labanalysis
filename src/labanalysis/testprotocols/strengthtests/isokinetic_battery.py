@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ...tests import TestBattery
+from ...testing import TestBattery
 from .isokinetic import Isokinetic1RMTest
 
 __all__ = ["Isokinetic1RMTestBattery"]

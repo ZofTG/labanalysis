@@ -14,14 +14,13 @@ import re
 from copy import deepcopy
 from os.path import exists
 from socket import SocketType
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Optional, Union
 from warnings import warn
 
 import numpy as np
 import pandas as pd
 
-from . import messages, signalprocessing
-from .io.read import read_tdf
+from . import messages, signalprocessing, io
 
 __all__ = [
     "TimeSeries",
@@ -1033,9 +1032,9 @@ class StateFrame(SmartDataFrame):
 
     @property
     def signals1d(self):
-        sub = self["Signal1D"][self.columns.get_level_values(0)[0]]
         out: dict[str, Signal1D] = {}
-        for lbl in sub.columns.get_level_values(0).unique():
+        sub = self["Signal1D"]
+        for lbl in sub.columns:
             out[lbl] = Signal1D(
                 data=sub[lbl].values.astype(float).flatten(),
                 time=sub[lbl].index.to_numpy(),
@@ -1047,7 +1046,7 @@ class StateFrame(SmartDataFrame):
 
     @property
     def signals3d(self):
-        sub = self["Signal3D"][self.columns.get_level_values(0)[0]]
+        sub = self["Signal3D"]
         out: dict[str, Signal3D] = {}
         for lbl in sub.columns.get_level_values(0).unique():
             dfr = sub[lbl]
@@ -1064,10 +1063,11 @@ class StateFrame(SmartDataFrame):
 
     @property
     def emgsignals(self):
-        sub = self["EMGSignal"][self.columns.get_level_values(0)[0]]
-        out: dict[tuple[str, str, str], EMGSignal] = {}
-        for lbl in sub.columns:
-            dfr = sub[lbl]
+        sub = self["EMGSignal"]
+        out: dict[str, EMGSignal] = {}
+        for col in sub.columns:
+            dfr = sub[col]
+            lbl = "_".join([col[1], col[0]])
             out[lbl] = EMGSignal(
                 data=dfr.values.astype(float).flatten(),
                 time=dfr.index.to_numpy(),
@@ -1078,7 +1078,7 @@ class StateFrame(SmartDataFrame):
 
     @property
     def points3d(self):
-        sub = self["Point3D"][self.columns.get_level_values(0)[0]]
+        sub = self["Point3D"]
         out: dict[str, Point3D] = {}
         for lbl in sub.columns.get_level_values(0).unique():
             dfr = sub[lbl]
@@ -1094,7 +1094,7 @@ class StateFrame(SmartDataFrame):
 
     @property
     def forceplatforms(self):
-        sub = self["ForcePlatform"][self.columns.get_level_values(0)[0]]
+        sub = self["ForcePlatform"]
         out: dict[str, ForcePlatform] = {}
         for lbl in sub.columns.get_level_values(0).unique():
             dfr = sub[lbl]
@@ -1262,7 +1262,7 @@ class StateFrame(SmartDataFrame):
             raise ValueError("file must be and existing .tdf object")
 
         # read the tdf file
-        tdf = read_tdf(file)
+        tdf = io.read_tdf(file)
         obj = cls(reset_index=False, strip=False)  # type: ignore
 
         # extract raw marker data

@@ -17,7 +17,7 @@ from ...constants import (
 )
 from ...frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
 from ...signalprocessing import butterworth_filt, fillna, rms_filt
-from ...tests import TestProtocol, ProcessingPipeline
+from ...testing import TestProtocol, ProcessingPipeline
 
 #! CONSTANTS
 

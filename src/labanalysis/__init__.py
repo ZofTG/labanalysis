@@ -33,11 +33,11 @@ plotting
 from .constants import *
 from .equations import *
 from .frames import *
-from .tests import *
 from .io import *
 from .messages import *
 from .plotting import *
 from .regression import *
 from .signalprocessing import *
+from .testing import *
 from .testprotocols import *
 from .utils import *

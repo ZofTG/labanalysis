@@ -5,8 +5,8 @@ base test module containing classes and functions used to perform lab tests.
 #! IMPORTS
 
 
-from copy import deepcopy
 import pickle
+from copy import deepcopy
 from datetime import date, datetime
 from os.path import exists
 from typing import Any, Callable, Dict, List, Protocol, runtime_checkable
@@ -14,10 +14,15 @@ from typing import Any, Callable, Dict, List, Protocol, runtime_checkable
 import pandas as pd
 import plotly.graph_objects as go
 
-from .frames import EMGSignal, ForcePlatform, Point3D, Signal1D, Signal3D, StateFrame
-
-
-from . import messages
+from frames import (
+    EMGSignal,
+    ForcePlatform,
+    Point3D,
+    Signal1D,
+    Signal3D,
+    StateFrame,
+)
+from messages import askyesnocancel
 
 __all__ = ["TestProtocol", "TestBattery", "Participant", "ProcessingPipeline"]
 
@@ -647,7 +652,7 @@ class TestProtocol(Protocol):
             file_path += extension
         overwrite = False
         while exists(file_path) and not overwrite:
-            overwrite = messages.askyesnocancel(
+            overwrite = askyesnocancel(
                 title="File already exists",
                 message="the provided file_path already exist. Overwrite?",
             )
@@ -817,7 +822,7 @@ class TestBattery(Protocol):
             file_path += extension
         overwrite = False
         while exists(file_path) and not overwrite:
-            overwrite = messages.askyesnocancel(
+            overwrite = askyesnocancel(
                 title="File already exists",
                 message="the provided file_path already exist. Overwrite?",
             )

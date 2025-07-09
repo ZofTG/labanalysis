@@ -10,7 +10,7 @@ from os.path import dirname, join
 
 from ...frames import StateFrame
 from .upright import UprightStance
-from ...tests import TestProtocol
+from ...testing import TestProtocol
 from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go
