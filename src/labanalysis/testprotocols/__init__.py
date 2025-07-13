@@ -2,7 +2,8 @@
 
 #! IMPORTS
 
+from .balancetests import *
 from .gaittests import *
 from .jumptests import *
-from .posturaltests import *
+from .protocols import *
 from .strengthtests import *

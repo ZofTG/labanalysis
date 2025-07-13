@@ -1,5 +1,5 @@
 ﻿parameter,mean,std
-Biceps femoris Imbalance (%),15.77771124,9.097038503
-Elevation (cm),35.92370418,5.990352874
-Takeoff Velocity (m/s),2.651046467,0.264715508
-Vastus medialis Imbalance (%),14.59112967,15.29637735
+muscle_biceps_femoris_balance_%,15.77771124,9.097038503
+elevation_cm,35.92370418,5.990352874
+takeoff_velocity_m/s,2.651046467,0.264715508
+muscle_vastus_medialis_balance_%,14.59112967,15.29637735

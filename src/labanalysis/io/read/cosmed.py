@@ -24,7 +24,7 @@ import os
 import datetime
 import pandas as pd
 
-from ...testing import Participant
+from ...testprotocols.protocols import Participant
 
 
 #! CONSTANTS

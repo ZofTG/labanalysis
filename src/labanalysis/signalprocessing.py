@@ -1,83 +1,56 @@
 """
 signalprocessing
 
-a set of functions dedicated to the processing and analysis of 1D signals
+A set of functions dedicated to the processing and analysis of 1D signals.
 
 Functions
 ---------
 find_peaks
-    find peaks in the signal
-
-contiguous_batches
-    get the indices defining contiguous samples in the signal.
-
+    Find peaks in the signal.
+continuous_batches
+    Get the indices defining contiguous samples in the signal.
 nextpow
-    the next power of the selected base.
-
+    The next power of the selected base.
 winter_derivative1
-    obtain the first derivative of a 1D signal according to Winter 2009 method.
-
+    Obtain the first derivative of a 1D signal according to Winter 2009 method.
 winter_derivative2
-    obtain the second derivative of a 1D signal according to Winter 2009 method.
-
-feedman_diaconis_bins
-    digitize a 1D signal in bins defined according to the freedman-diaconis rule
-
+    Obtain the second derivative of a 1D signal according to Winter 2009 method.
+freedman_diaconis_bins
+    Digitize a 1D signal in bins defined according to the Freedman-Diaconis rule.
 fir_filt
-    apply a FIR (Finite Impulse Response) filter to a 1D signal
-
+    Apply a FIR (Finite Impulse Response) filter to a 1D signal.
 mean_filt
-    apply a moving average filter to a 1D signal
-
+    Apply a moving average filter to a 1D signal.
 median_filt
-    apply a median filter to a 1D signal
-
+    Apply a median filter to a 1D signal.
 rms_filt
-    apply a rms filter to a 1D signal
-
+    Apply a RMS filter to a 1D signal.
 butterworth_filt
-    apply a butterworth filter to a 1D signal
-
+    Apply a Butterworth filter to a 1D signal.
 cubicspline_interp
-    apply cubic spline interpolation to a 1D signal
-
+    Apply cubic spline interpolation to a 1D signal.
 residual_analysis
-    get the optimal cut-off frequency for a filter on 1D signals according
-    to Winter 2009 'residual analysis' method
-
+    Get the optimal cut-off frequency for a filter on 1D signals according to Winter 2009 'residual analysis' method.
 crossovers
-    get the x-axis coordinates of the junction between the lines best fitting
-    a 1D signal in a least-squares sense.
-
+    Get the x-axis coordinates of the junction between the lines best fitting a 1D signal in a least-squares sense.
 psd
-    obtain the power spectral density estimate of a 1D signal using the
-    periodogram method.
-
+    Obtain the power spectral density estimate of a 1D signal using the periodogram method.
 crossings
-    obtain the location of the samples being across a target value.
-
+    Obtain the location of the samples being across a target value.
 xcorr
-    get the cross/auto-correlation and lag of of multiple/one 1D signal.
-
+    Get the cross/auto-correlation and lag of multiple/one 1D signal.
 outlyingness
-    return the adsjusted outlyingness factor.
-
+    Return the adjusted outlyingness factor.
 gram_schmidt
-    return the orthogonal basis defined by a set of points using the
-    Gram-Schmidt algorithm.
-
+    Return the orthogonal basis defined by a set of points using the Gram-Schmidt algorithm.
 fillna
-    fill missing data in numpy ndarray or pandas dataframe
-
+    Fill missing data in numpy ndarray or pandas dataframe.
 tkeo
-    obtain the discrete Teager-Keiser Energy of the input signal.
-
+    Obtain the discrete Teager-Kaiser Energy of the input signal.
 padwin
-    pad the signal according to the given order and return the mask of
-    indices defining each window on the signal.
-
+    Pad the signal according to the given order and return the mask of indices defining each window on the signal.
 to_reference_frame
-    rotate a 3D array or dataframe to the provided reference frame
+    Rotate a 3D array or dataframe to the provided reference frame.
 """
 
 #! IMPORTS
@@ -126,28 +99,26 @@ __all__ = [
 
 
 def find_peaks(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     height: int | float | None = None,
     distance: int | None = None,
-):
+) -> np.ndarray:
     """
-    find peaks in the signal
+    Find peaks in the signal.
 
     Parameters
     ----------
-    arr : np.ndarray[Any, np.dtype[np.float64]]
-        the input signal
-
-    height : Union[int, float, None]
-        the minimum height of the peaks
-
-    distance : Union[int, None]
-        the minimum distance between the peaks
+    arr : np.ndarray
+        The input signal.
+    height : int or float or None, optional
+        The minimum height of the peaks.
+    distance : int or None, optional
+        The minimum distance between the peaks.
 
     Returns
     -------
-    p: np.ndarray[Any, np.dtype[np.int64]]
-        the array containing the samples corresponding to the detected peaks
+    np.ndarray
+        The array containing the indices of the detected peaks.
     """
     # get all peaks
     d1y = arr[1:] - arr[:-1]
@@ -173,22 +144,20 @@ def find_peaks(
 
 
 def continuous_batches(
-    arr: np.ndarray[Any, np.dtype[np.bool_]],
-):
+    arr: np.ndarray,
+) -> list[list[int]]:
     """
-    return the list of indices defining batches where consecutive arr
-    values are True.
+    Return the list of indices defining batches where consecutive arr values are True.
 
     Parameters
     ----------
-    arr : np.ndarray[Any, np.dtype[np.bool_]]
-        a 1D boolean array
+    arr : np.ndarray
+        A 1D boolean array.
 
     Returns
     -------
-    samples: list[list[bool]]
-        a list of lists containing the samples defining a batch of consecutive
-        True values.
+    list of list of int
+        A list of lists containing the indices defining each batch of consecutive True values.
     """
     locs = arr.astype(int)
     idxs = np.diff(locs)
@@ -204,58 +173,50 @@ def continuous_batches(
 def nextpow(
     val: int | float,
     base: int = 2,
-):
+) -> int:
     """
-    get the next power of the provided value according to the given base.
+    Get the next power of the provided value according to the given base.
 
     Parameters
     ----------
-    val : Union[int, float]
-        the target value
-
+    val : int or float
+        The target value.
     base : int, optional
-        the base to be elevated
+        The base to be elevated.
 
     Returns
     -------
-    out: int
-        the next power of the provided value according to the given base.
+    int
+        The next power of the provided value according to the given base.
     """
     return int(round(base ** np.ceil(np.log(val) / np.log(base))))
 
 
 def winter_derivative1(
-    y_signal: np.ndarray[Any, np.dtype[np.float64]],
-    x_signal: None | np.ndarray[Any, np.dtype[np.float64]] = None,
+    y_signal: np.ndarray,
+    x_signal: np.ndarray | None = None,
     time_diff: float | int = 1,
-):
+) -> np.ndarray:
     """
-    return the first derivative of y.
+    Return the first derivative of y.
 
     Parameters
     ----------
-
-    y_signal: np.ndarray[Any, np.dtype[np.float64]]
-        the signal to be derivated
-
-    x_signal: None | np.ndarray[Any, np.dtype[np.float64]]
-        the optional signal from which y has to  be derivated (default = None)
-
-    time_diff: float | int
-        the difference between samples in y.
-        NOTE: if x is provided, this parameter is ignored
+    y_signal : np.ndarray
+        The signal to be differentiated.
+    x_signal : np.ndarray or None, optional
+        The optional signal from which y has to be differentiated (default: None).
+    time_diff : float or int, optional
+        The difference between samples in y. Ignored if x_signal is provided.
 
     Returns
     -------
-
-    z: ndarray
-        an array being the first derivative of y
+    np.ndarray
+        The first derivative of y.
 
     References
     ----------
-
-    Winter DA. Biomechanics and Motor Control of Human Movement. Fourth Ed.
-        Hoboken, New Jersey: John Wiley & Sons Inc; 2009.
+    Winter DA. Biomechanics and Motor Control of Human Movement. Fourth Ed. Hoboken, New Jersey: John Wiley & Sons Inc; 2009.
     """
 
     # get x
@@ -269,37 +230,30 @@ def winter_derivative1(
 
 
 def winter_derivative2(
-    y_signal: np.ndarray[Any, np.dtype[np.float64]],
-    x_signal: None | np.ndarray[Any, np.dtype[np.float64]] = None,
+    y_signal: np.ndarray,
+    x_signal: np.ndarray | None = None,
     time_diff: float | int = 1,
-):
+) -> np.ndarray:
     """
-    return the second derivative of y.
+    Return the second derivative of y.
 
     Parameters
     ----------
-
-    y_signal: np.ndarray[Any, np.dtype[np.float64]]
-        the signal to be derivated
-
-    x_signal: None | np.ndarray[Any, np.dtype[np.float64]]
-        the optional signal from which y has to  be derivated (default = None)
-
-    time_diff: float | int
-        the difference between samples in y.
-        NOTE: if x is provided, this parameter is ignored
+    y_signal : np.ndarray
+        The signal to be differentiated.
+    x_signal : np.ndarray or None, optional
+        The optional signal from which y has to be differentiated (default: None).
+    time_diff : float or int, optional
+        The difference between samples in y. Ignored if x_signal is provided.
 
     Returns
     -------
-
-    z: np.ndarray[Any, np.dtype[np.float64]]
-        an array being the second derivative of y
+    np.ndarray
+        The second derivative of y.
 
     References
     ----------
-
-    Winter DA. Biomechanics and Motor Control of Human Movement. Fourth Ed.
-        Hoboken, New Jersey: John Wiley & Sons Inc; 2009.
+    Winter DA. Biomechanics and Motor Control of Human Movement. Fourth Ed. Hoboken, New Jersey: John Wiley & Sons Inc; 2009.
     """
 
     # get x
@@ -315,35 +269,24 @@ def winter_derivative2(
 
 
 def freedman_diaconis_bins(
-    y_signal: np.ndarray[Any, np.dtype[np.float64]],
-):
+    y_signal: np.ndarray,
+) -> np.ndarray:
     """
-    return a digitized version of y where each value is linked to a
-    bin (i.e an int value) according to the rule.
-
-                             IQR(x)
-            width = 2 * ---------------
-                        len(x) ** (1/3)
+    Digitize a 1D signal in bins defined according to the Freedman-Diaconis rule.
 
     Parameters
     ----------
-
-    y_signal: np.ndarray[Any, np.dtype[np.float64]]
-        the signal to be digitized.
+    y_signal : np.ndarray
+        The signal to be digitized.
 
     Returns
     -------
-
-    d: np.ndarray[Any, np.dtype[np.float64]]
-        an array with the same shape of y containing the index
-        of the bin of which the corresponding sample of y is part.
+    np.ndarray
+        An array with the same shape as y containing the index of the bin for each sample.
 
     References
     ----------
-    Freedman D, Diaconis P.
-        (1981) On the histogram as a density estimator:L 2 theory.
-        Z. Wahrscheinlichkeitstheorie verw Gebiete 57: 453-476.
-        doi: 10.1007/BF01025868
+    Freedman D, Diaconis P. (1981) On the histogram as a density estimator: L2 theory. Z. Wahrscheinlichkeitstheorie verw Gebiete 57: 453-476. doi: 10.1007/BF01025868
     """
 
     # y IQR
@@ -370,82 +313,27 @@ def padwin(
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    pad the signal according to the given order and return the mask of
-    indices defining each window on the signal.
+    Pad the signal according to the given order and return the mask of indices defining each window on the signal.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    order: int = 1,
-        the number of samples to be considered as averaging window.
-
-    pd: str = "edge"
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
-
-    offset: float
-        a value within the [0, 1] range defining how the averaging window is
-        obtained.
-        Offset=0,
-            indicate that for each sample, the filtered value will be the mean
-            of the subsequent n-1 values plus the current sample.
-        Offset=1,
-            on the other hand, calculates the filtered value at each sample as
-            the mean of the n-1 preceding values plus the current sample.
-        Offset=0.5,
-            centers the averaging window around the actual sample being
-            evaluated.
+    arr : np.ndarray
+        The signal to be filtered.
+    order : int, optional
+        The number of samples to be considered as averaging window.
+    pad_style : str, optional
+        The type of padding style adopted before filtering.
+    offset : float, optional
+        Value in [0, 1] defining how the averaging window is obtained.
 
     Returns
     -------
-    pad: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
-        The padded signal
-
-    mask: np.ndarray[Literal[2], np.dtype[np.int64]],
-        a 2D mask where each row denotes the indices of one window.
+    pad : np.ndarray
+        The padded signal.
+    mask : np.ndarray
+        A 2D mask where each row denotes the indices of one window on the signal.
     """
     # get the window range
     stop = order - int(np.floor(order * offset)) - 1
@@ -471,86 +359,28 @@ def thresholding_filt(
     order: int = 3,
     pad_style: str = "edge",
     offset: float = 0.5,
-):
+) -> np.ndarray:
     """
-    apply a thresholding filter where only those values being moving average filter to the signal.
+    Apply a thresholding filter where only those values being moving average filter to the signal.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    factor: int | float
-        the factor to be multiplied by the standard deviation of the reading
-        window to detect extreme values.
-
-    robust: bool = False,
-        If False, thresholding and replacement of extreme values will be obtained
-        using mean and standard deviation of the reading window.
-        If True, median and median absolute difference will be used otherwise.
-
-    order: int = 3,
-        the number of samples to be considered as averaging window.
-
-    pd: str = "edge"
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
-
-    offset: float
-        a value within the [0, 1] range defining how the averaging window is
-        obtained.
-        Offset=0,
-            indicate that for each sample, the filtered value will be the mean
-            of the subsequent n-1 values plus the current sample.
-        Offset=1,
-            on the other hand, calculates the filtered value at each sample as
-            the mean of the n-1 preceding values plus the current sample.
-        Offset=0.5,
-            centers the averaging window around the actual sample being
-            evaluated.
+    arr : np.ndarray
+        The signal to be filtered.
+    factor : float or int, optional
+        The factor multiplied by the standard deviation of the window to detect extremes.
+    robust : bool, optional
+        If True, use median and MAD; otherwise, use mean and std.
+    order : int, optional
+        The number of samples for the averaging window.
+    pad_style : str, optional
+        The type of padding style.
+    offset : float, optional
+        Value in [0, 1] defining how the averaging window is obtained.
 
     Returns
     -------
-    z: 1D array
+    np.ndarray
         The filtered signal.
     """
 
@@ -579,77 +409,24 @@ def mean_filt(
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
-):
+) -> np.ndarray:
     """
-    apply a moving average filter to the signal.
+    Apply a moving average filter to the signal.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    order: int = 1,
-        the number of samples to be considered as averaging window.
-
-    pd: str = "edge"
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
-
-    offset: float
-        a value within the [0, 1] range defining how the averaging window is
-        obtained.
-        Offset=0,
-            indicate that for each sample, the filtered value will be the mean
-            of the subsequent n-1 values plus the current sample.
-        Offset=1,
-            on the other hand, calculates the filtered value at each sample as
-            the mean of the n-1 preceding values plus the current sample.
-        Offset=0.5,
-            centers the averaging window around the actual sample being
-            evaluated.
+    arr : np.ndarray
+        The signal to be filtered.
+    order : int, optional
+        The number of samples for the averaging window.
+    pad_style : str, optional
+        The type of padding style.
+    offset : float, optional
+        Value in [0, 1] defining how the averaging window is obtained.
 
     Returns
     -------
-    z: 1D array
+    np.ndarray
         The filtered signal.
     """
 
@@ -675,77 +452,24 @@ def median_filt(
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
-):
+) -> np.ndarray:
     """
-    apply a median filter to the signal.
+    Apply a median filter to the signal.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    order: int = 1,
-        the number of samples to be considered as averaging window.
-
-    pd: str = "edge"
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
-
-    offset: float
-        a value within the [0, 1] range defining how the averaging window is
-        obtained.
-        Offset=0,
-            indicate that for each sample, the filtered value will be the mean
-            of the subsequent n-1 values plus the current sample.
-        Offset=1,
-            on the other hand, calculates the filtered value at each sample as
-            the mean of the n-1 preceding values plus the current sample.
-        Offset=0.5,
-            centers the averaging window around the actual sample being
-            evaluated.
+    arr : np.ndarray
+        The signal to be filtered.
+    order : int, optional
+        The number of samples for the averaging window.
+    pad_style : str, optional
+        The type of padding style.
+    offset : float, optional
+        Value in [0, 1] defining how the averaging window is obtained.
 
     Returns
     -------
-    z: 1D array
+    np.ndarray
         The filtered signal.
     """
     pad, mask = padwin(arr, order, pad_style, offset)
@@ -757,77 +481,24 @@ def rms_filt(
     order: int = 1,
     pad_style: str = "edge",
     offset: float = 0.5,
-):
+) -> np.ndarray:
     """
-    obtain the root-mean square of the signal with the given sampling window
+    Obtain the root-mean-square of the signal with the given sampling window.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    order: int = 1,
-        the number of samples to be considered as averaging window.
-
-    pd: str = "edge"
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
-
-    offset: float
-        a value within the [0, 1] range defining how the averaging window is
-        obtained.
-        Offset=0,
-            indicate that for each sample, the filtered value will be the mean
-            of the subsequent n-1 values plus the current sample.
-        Offset=1,
-            on the other hand, calculates the filtered value at each sample as
-            the mean of the n-1 preceding values plus the current sample.
-        Offset=0.5,
-            centers the averaging window around the actual sample being
-            evaluated.
+    arr : np.ndarray
+        The signal to be filtered.
+    order : int, optional
+        The number of samples for the averaging window.
+    pad_style : str, optional
+        The type of padding style.
+    offset : float, optional
+        Value in [0, 1] defining how the averaging window is obtained.
 
     Returns
     -------
-    z: 1D array
+    np.ndarray
         The filtered signal.
     """
 
@@ -852,7 +523,7 @@ def rms_filt(
 
 
 def fir_filt(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     fcut: float | int | list[float | int] | tuple[float | int] = 1,
     fsamp: float | int = 2,
     order: int = 5,
@@ -887,96 +558,31 @@ def fir_filt(
         "symmetric",
         "wrap",
     ] = "edge",
-):
+) -> np.ndarray:
     """
-    apply a FIR filter with the specified specs to the signal.
+    Apply a FIR filter with the specified specs to the signal.
 
     Parameters
     ----------
-
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    fcut: float | int | list[float | int], tuple[float | int] = 1,
-        the cutoff frequency of the filter.
-
-    fsamp: float | int = 2,
+    arr : np.ndarray
+        The signal to be filtered.
+    fcut : float, int, list, or tuple, optional
+        The cutoff frequency of the filter.
+    fsamp : float or int, optional
         The sampling frequency of the signal.
-
-    order: int = 5,
-        the order of the filter
-
-    ftype: str = "lowpass",
-        the type of filter. Any of "bandpass", "lowpass", "highpass",
-        "bandstop".
-
-    wn: str
-        the type of window to be applied. Any of:
-            "boxcar",
-            "triang",
-            "blackman",
-            "hamming",
-            "hann",
-            "bartlett",
-            "flattop",
-            "parzen",
-            "bohman",
-            "blackmanharris",
-            "nuttall",
-            "barthann",
-            "cosine",
-            "exponential",
-            "tukey",
-            "taylor"
-
-    pd: str
-        the type of padding style adopted to apply before implementing
-        the filter. Available options are:
-
-        constant (default)
-        Pads with a constant value.
-
-        edge
-        Pads with the edge values of array.
-
-        linear_ramp
-        Pads with the linear ramp between end_value and the array
-        edge value.
-
-        maximum
-        Pads with the maximum value of all or part of the vector
-        along each axis.
-
-        mean
-        Pads with the mean value of all or part of the vector
-        along each axis.
-
-        median
-        Pads with the median value of all or part of the vector
-        along each axis.
-
-        minimum
-        Pads with the minimum value of all or part of the vector
-        along each axis.
-
-        reflect
-        Pads with the reflection of the vector mirrored on the first
-        and last values of the vector along each axis.
-
-        symmetric
-        Pads with the reflection of the vector mirrored along the edge
-        of the array.
-
-        wrap
-        Pads with the wrap of the vector along the axis. The first values
-        are used to pad the end and the end values are used to pad
-        the beginning.
+    order : int, optional
+        The order of the filter.
+    ftype : str, optional
+        The type of filter: "bandpass", "lowpass", "highpass", "bandstop".
+    wtype : str, optional
+        The type of window to be applied.
+    pstyle : str, optional
+        The type of padding style.
 
     Returns
     -------
-
-    filtered: 1D array
-        the filtered signal.
+    np.ndarray
+        The filtered signal.
     """
     coefs = signal.firwin(
         order,
@@ -998,45 +604,35 @@ def fir_filt(
 
 
 def butterworth_filt(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     fcut: float | int | list[float | int] | tuple[float | int] = 1,
     fsamp: float | int = 2,
     order: int = 5,
     ftype: Literal["lowpass", "highpass", "bandpass", "bandstop"] = "lowpass",
     phase_corrected: bool = True,
-):
+) -> np.ndarray:
     """
-    Provides a convenient function to call a Butterworth filter with the
-    specified parameters.
+    Apply a Butterworth filter with the specified parameters.
 
     Parameters
     ----------
-
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be filtered.
-
-    fcut: float | int | list[float | int], tuple[float | int] = 1,
-        the cutoff frequency of the filter.
-
-    fsamp: float | int = 2,
+    arr : np.ndarray
+        The signal to be filtered.
+    fcut : float, int, list, or tuple, optional
+        The cutoff frequency of the filter.
+    fsamp : float or int, optional
         The sampling frequency of the signal.
-
-    order: int = 5,
-        the order of the filter
-
-    ftype: str = "lowpass",
-        the type of filter. Any of "bandpass", "lowpass", "highpass",
-        "bandstop".
-
-    phase_corrected: bool, optional
-        should the filter be applied twice in opposite directions
-        to correct for phase lag?
+    order : int, optional
+        The order of the filter.
+    ftype : str, optional
+        The type of filter: "bandpass", "lowpass", "highpass", "bandstop".
+    phase_corrected : bool, optional
+        If True, apply the filter twice in opposite directions to correct for phase lag.
 
     Returns
     -------
-
-    z: np.ndarray[Any, np.dtype[np.float64]],
-        the resulting 1D filtered signal.
+    np.ndarray
+        The filtered signal.
     """
 
     # get the filter coefficients
@@ -1057,34 +653,29 @@ def butterworth_filt(
 
 
 def cubicspline_interp(
-    y_old: np.ndarray[Any, np.dtype[np.float64]],
+    y_old: np.ndarray,
     nsamp: int | None = None,
-    x_old: np.ndarray[Any, np.dtype[np.float64]] | None = None,
-    x_new: np.ndarray[Any, np.dtype[np.float64]] | None = None,
-):
+    x_old: np.ndarray | None = None,
+    x_new: np.ndarray | None = None,
+) -> np.ndarray:
     """
     Get the cubic spline interpolation of y.
 
     Parameters
     ----------
-
-    y_old: np.ndarray[Any, np.dtype[np.float64]],
-        the data to be interpolated.
-
-    nsamp: int | None = None,
-        the number of points for the interpolation.
-
-    x_old: np.ndarray[Any, np.dtype[np.float64]] | None = None,
-        the x coordinates corresponding to y. It is ignored if n is provided.
-
-    x_new: np.ndarray[Any, np.dtype[np.float64]] | None = None,
-        the newly (interpolated) x coordinates corresponding to y.
-        It is ignored if n is provided.
+    y_old : np.ndarray
+        The data to be interpolated.
+    nsamp : int or None, optional
+        The number of points for the interpolation.
+    x_old : np.ndarray or None, optional
+        The x coordinates corresponding to y. Ignored if nsamp is provided.
+    x_new : np.ndarray or None, optional
+        The new x coordinates for interpolation. Ignored if nsamp is provided.
 
     Returns
     -------
-    z: np.ndarray[Any, np.dtype[np.float64]]
-        the interpolated y axis
+    np.ndarray
+        The interpolated y axis.
     """
 
     # control of the inputs
@@ -1101,70 +692,47 @@ def cubicspline_interp(
 
 
 def residual_analysis(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     ffun: FunctionType | MethodType,
     fnum: int = 1000,
     fmax: float | int | None = None,
     nseg: int = 2,
     minsamp: int = 2,
-):
+) -> tuple[float, np.ndarray, np.ndarray]:
     """
     Perform Winter's residual analysis of the input signal.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be investigated
-
-    ffun: FunctionType | MethodType,
-        the filter to be used for the analysis. The function must receive two
-        inputs: the raw signal and the filter cut-off. The output must be the
-        filtered signal.
-
-    fnum: int = 1000,
-        the number of frequencies to be tested within the (0, f_max) range to
-        create the residuals curve of the Winter's residuals analysis approach.
-
-    fmax: float | int | None = None,
-        the maximum frequency to be tested in normalized units in the (0, 0.5)
-        range. If None, it is defined as the frequency covering the 99% of
-        the cumulative signal power.
-
-    nseg: int = 2,
-        the number of segments that can be used to fit the residuals curve in
-        order to identify the best deflection point.
-        NOTE: values above 3 will greatly increase the computation time.
-
-    minsamp: int = 2,
-        the minimum number of elements that have to be considered for each
-        segment during the calculation of the best deflection point.
+    arr : np.ndarray
+        The signal to be investigated.
+    ffun : FunctionType or MethodType
+        The filter to be used for the analysis.
+    fnum : int, optional
+        The number of frequencies to be tested.
+    fmax : float or int or None, optional
+        The maximum frequency to be tested.
+    nseg : int, optional
+        The number of segments for fitting.
+    minsamp : int, optional
+        The minimum number of elements per segment.
 
     Returns
     -------
-
-    cutoff: float
-        the suggested cutoff value
-
-    frequencies: np.ndarray[Any, np.dtype[np.float64]],
-        the tested frequencies
-
-    residuals: np.ndarray[Any, np.dtype[np.float64]],
-        the residuals corresponding to the given frequency
+    float
+        The suggested cutoff value.
+    np.ndarray
+        The tested frequencies.
+    np.ndarray
+        The residuals corresponding to the given frequency.
 
     Notes
     -----
-
-    The signal is filtered over a range of frequencies and the sum of squared
-    residuals (SSE) against the original signal is computer for each tested
-    cut-off frequency. Next, a series of fitting lines are used to estimate the
-    optimal disruption point defining the cut-off frequency optimally
-    discriminating between noise and good quality signal.
+    The signal is filtered over a range of frequencies and the sum of squared residuals (SSE) against the original signal is computed for each tested cut-off frequency. Next, a series of fitting lines are used to estimate the optimal disruption point defining the cut-off frequency optimally discriminating between noise and good quality signal.
 
     References
     ----------
-
-    Winter DA 2009, Biomechanics and Motor Control of Human Movement.
-        Fourth Ed. John Wiley & Sons Inc, Hoboken, New Jersey (US).
+    Winter DA 2009, Biomechanics and Motor Control of Human Movement. Fourth Ed. John Wiley & Sons Inc, Hoboken, New Jersey (US).
 
     Lerman PM 1980, Fitting Segmented Regression Models by Grid Search.
         Appl Stat. 29(1):77.
@@ -1190,8 +758,8 @@ def residual_analysis(
 
 
 def _sse(
-    xval: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
-    yval: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
+    xval: np.ndarray,
+    yval: np.ndarray,
     segm: list[tuple[int]],
 ):
     """
@@ -1219,7 +787,7 @@ def _sse(
     """
     sse = 0.0
     for i in np.arange(len(segm) - 1):
-        coords = np.arange(segm[i], segm[i + 1] + 1)
+        coords = np.arange(segm[i], segm[i + 1] + 1)  # type: ignore
         coefs = np.polyfit(xval[coords], yval[coords], 1)
         vals = np.polyval(coefs, xval[coords])
         sse += np.sum((yval[coords] - vals) ** 2)
@@ -1227,58 +795,41 @@ def _sse(
 
 
 def crossovers(
-    arr: np.ndarray[Any, np.dtype[np.float64 | np.int64]],
+    arr: np.ndarray,
     segments: int = 2,
     min_samples: int = 5,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Detect the position of the crossing over points between K regression
-    lines used to best fit the data.
+    Detect the position of the crossing over points between K regression lines used to best fit the data.
 
     Parameters
     ----------
-    arr:np.ndarray[Any, np.dtype[np.float64]],
-        the signal to be fitted.
-
-    segments:int=2,
-        the number of segments that can be used to fit the residuals curve in
-        order to identify the best deflection point.
-        NOTE: values above 3 will greatly increase the computation time.
-
-    min_samples:int=5,
-        the minimum number of elements that have to be considered for each
-        segment during the calculation of the best deflection point.
+    arr : np.ndarray
+        The signal to be fitted.
+    segments : int, optional
+        The number of segments for fitting.
+    min_samples : int, optional
+        The minimum number of elements per segment.
 
     Returns
     -------
-
-    crossings: list[int]
-        An ordered array of indices containing the samples corresponding to the
-        detected crossing over points.
-
-    coefs: list[tuple[float]]
-        A list of tuples containing the slope and intercept of the line
-        describing each fitting segment.
+    np.ndarray
+        Indices of the detected crossing over points.
+    np.ndarray
+        Slopes and intercepts of the fitting segments.
 
     Notes
     -----
-
-    the steps involved in the calculations can be summarized as follows:
-
-        1)  Get all the segments combinations made possible by the given
-            number of crossover points.
-        2)  For each combination, calculate the regression lines corresponding
-            to each segment.
-        3)  For each segment calculate the residuals between the calculated
-            regression line and the effective data.
-        5)  Once the sum of the residuals have been calculated for each
-            combination, sort them by residuals amplitude.
+    Steps:
+        1) Get all segment combinations.
+        2) For each, calculate regression lines.
+        3) For each, calculate residuals.
+        4) Sort by residuals.
+        5) Return best combination.
 
     References
     ----------
-
-    Lerman PM 1980, Fitting Segmented Regression Models by Grid Search.
-    Appl Stat. 29(1):77.
+    Lerman PM 1980, Fitting Segmented Regression Models by Grid Search. Appl Stat. 29(1):77.
     """
 
     # control the inputs
@@ -1327,29 +878,25 @@ def crossovers(
 
 
 def psd(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     fsamp: float | int = 1.0,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    compute the power spectrum of signal using fft
+    Compute the power spectrum of signal using FFT.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        A 1D numpy array
-
-    fssamp: float | int = 1.0,
-        the sampling frequency (in Hz) of the signal. If not provided the
-        power spectrum frequencies are provided as normalized values within the
-        (0, 0.5) range.
+    arr : np.ndarray
+        A 1D numpy array.
+    fsamp : float or int, optional
+        The sampling frequency (Hz) of the signal.
 
     Returns
     -------
-    frq: np.ndarray[Any, np.dtype[np.float64]],
-        the frequency corresponding to each element of pwr.
-
-    pwr: np.ndarray[Any, np.dtype[np.float64]],
-        the power of each frequency
+    np.ndarray
+        The frequency corresponding to each element of power.
+    np.ndarray
+        The power of each frequency.
     """
 
     # get the psd
@@ -1363,30 +910,25 @@ def psd(
 
 
 def crossings(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
+    arr: np.ndarray,
     value: int | float = 0.0,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Dectect the crossing points in x compared to value.
+    Detect the crossing points in arr compared to value.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-        the 1D signal from which the crossings have to be found.
-
-    value: int | float = 0.0,
-        the crossing value.
+    arr : np.ndarray
+        The 1D signal from which the crossings have to be found.
+    value : int or float, optional
+        The crossing value.
 
     Returns
     -------
-    crs: 1D array
-        the samples corresponding to the crossings.
-
-    sgn: 1D array
-        the sign of the crossings. Positive sign means crossings
-        where the signal moves from values lower than "value" to
-        values higher than "value". Negative sign indicate the
-        opposite trend.
+    np.ndarray
+        The samples corresponding to the crossings.
+    np.ndarray
+        The sign of the crossings.
     """
 
     # get the sign of the signal without the offset
@@ -1400,38 +942,31 @@ def crossings(
 
 
 def xcorr(
-    sig1: np.ndarray[Any, np.dtype[np.float64]],
-    sig2: np.ndarray[Any, np.dtype[np.float64]] | None = None,
+    sig1: np.ndarray,
+    sig2: np.ndarray | None = None,
     biased: bool = False,
     full: bool = False,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    set the (multiple) auto/cross correlation of the data in y.
+    Set the (multiple) auto/cross correlation of the data in y.
 
     Parameters
     ----------
-    sig1: np.ndarray[Any, np.dtype[np.float64]],
-        the signal from which the auto or cross-correlation is provided.
-
-    sig2: np.ndarray[Any, np.dtype[np.float64]] | None = None,
-        the signal from which the auto or cross-correlation is provided.
-        if None. The autocorrelation of x is provided. Otherwise the x-y
-        cross-correlation is returned.
-
-    biased:bool=False,
-        if True, the biased auto/cross-correlation is provided.
-        Otherwise, the 'unbiased' estimator is returned.
-
-    full:bool=False,
-        Should the negative lags be reported?
+    sig1 : np.ndarray
+        The signal for auto/cross-correlation.
+    sig2 : np.ndarray or None, optional
+        The second signal for cross-correlation. If None, autocorrelation is computed.
+    biased : bool, optional
+        If True, use the biased estimator.
+    full : bool, optional
+        If True, report negative lags.
 
     Returns
     -------
-    xcr: np.ndarray[Any, np.dtype[np.float64]]
-        the auto/cross-correlation value.
-
-    lag: np.ndarray[Any, np.dtype[np.float64]]
-        the lags in sample units.
+    np.ndarray
+        The auto/cross-correlation value.
+    np.ndarray
+        The lags in sample units.
     """
 
     # take the autocorrelation if only y is provided
@@ -1477,27 +1012,24 @@ def xcorr(
 
 
 def outlyingness(
-    arr: np.ndarray[Any, np.dtype[np.float64]],
-):
+    arr: np.ndarray,
+) -> np.ndarray:
     """
-    return the adsjusted outlyingness factor.
+    Return the adjusted outlyingness factor.
 
     Parameters
     ----------
-    arr: np.ndarray[Any, np.dtype[np.float64]]
-        the input array
+    arr : np.ndarray
+        The input array.
 
     Returns
     -------
-    out: np.ndarray[Any, np.dtype[np.float64]]
-        the outlyingness score of each element
+    np.ndarray
+        The outlyingness score of each element.
 
     References
     ----------
-    Hubert, M., & Van der Veeken, S. (2008).
-        Outlier detection for skewed data.
-        Journal of Chemometrics: A Journal of the Chemometrics Society,
-        22(3‐4), 235-246.
+    Hubert, M., & Van der Veeken, S. (2008). Outlier detection for skewed data. Journal of Chemometrics: A Journal of the Chemometrics Society, 22(3‐4), 235-246.
     """
     qr1, med, qr3 = np.percentile(arr, [0.25, 0.50, 0.75])
     iqr = qr3 - qr1
@@ -1523,20 +1055,20 @@ def outlyingness(
 
 
 def gram_schmidt(
-    *points: np.ndarray[Any, np.dtype[np.number]],
-):
+    *points: np.ndarray,
+) -> np.ndarray:
     """
-    Return the orthogonal basis defined by a set of points using the
-    Gram-Schmidt algorithm.
+    Return the orthogonal basis defined by a set of points using the Gram-Schmidt algorithm.
 
     Parameters
     ----------
-    points: np.ndarray[Any, np.dtype[np.float64]]
-        a NxN numpy.ndarray to be orthogonalized (by row).
+    points : np.ndarray
+        A NxN numpy.ndarray to be orthogonalized (by row).
 
     Returns
     -------
-    a tuple of orthonormal versors
+    np.ndarray
+        A tuple of orthonormal versors.
     """
 
     # calculate the projection points
@@ -1556,9 +1088,10 @@ def fillna(
     arr: np.ndarray | DataFrame | Series,
     value: float | int | None = None,
     n_regressors: int | None = None,
+    inplace: bool = False,
 ):
     """
-    fill missing values in the array or dataframe.
+    Fill missing values in the array or dataframe.
 
     Parameters
     ----------
@@ -1570,16 +1103,19 @@ def fillna(
         if None, nearest neighbours imputation from the sklearn package is
         used.
 
-    n_regressors : int | None, default=NOne
+    n_regressors : int | None, default=None
         Number of regressors to be used in a Multiple Linear Regression model.
         The model used the "n_regressors" most correlated columns of
-        arr as indipendent variables to fit the missing values. The procedure
+        arr as independent variables to fit the missing values. The procedure
         is repeated for each dimension separately.
         If None, cubic spline interpolation is used on each column separately.
 
+    inplace : bool, optional
+        If True, fill in place (for DataFrame/Series). If False, return a new object.
+
     Returns
     -------
-    filled: np.ndarray
+    filled: np.ndarray, DataFrame, or Series
         the vector without missing data.
     """
     # check if missing values exist
@@ -1592,21 +1128,33 @@ def fillna(
     elif isinstance(arr, Series):
         obj = DataFrame(arr, copy=True).T
     else:
-        obj = arr.copy().astype(float)
+        obj = arr if inplace else arr.copy().astype(float)
     miss = np.isnan(obj.values)
 
     # otherwise return a copy of the actual vector
     if not miss.any():
-        return arr.copy()
+        if inplace:
+            return arr
+        else:
+            return arr.copy()
 
     # fill with the given value
     if value is not None:
         obj.iloc[miss] = value
         if isinstance(arr, np.ndarray):
+            if inplace:
+                arr[:] = obj.values
+                return arr
             return obj.values.astype(float)
         elif isinstance(arr, Series):
+            if inplace:
+                arr[:] = obj[obj.columns[0]].values
+                return arr
             return Series(obj[obj.columns[0]])
         else:
+            if inplace:
+                arr.loc[:, :] = obj.values
+                return arr
             return obj
 
     # check if linear regression models have to be used
@@ -1648,28 +1196,38 @@ def fillna(
 
     # return the filled array
     if isinstance(arr, np.ndarray):
+        if inplace:
+            arr[:] = obj.values
+            return arr
         return obj.values.astype(float)
     elif isinstance(arr, Series):
+        if inplace:
+            arr[:] = obj[obj.columns[0]].values
+            return arr
         return Series(obj[obj.columns[0]])
     else:
-        return obj
+        if inplace:
+            arr.loc[:, :] = obj.values
+            return arr
+        else:
+            return obj
 
 
 def tkeo(
-    arr: np.ndarray[Literal[1], np.dtype[np.float64 | np.int64]],
-):
+    arr: np.ndarray,
+) -> np.ndarray:
     """
-    obtain the discrete Teager-Keiser Energy of the input signal.
+    Obtain the discrete Teager-Keiser Energy of the input signal.
 
     Parameters
     ----------
-    arr : np.ndarray[Literal[1], np.dtype[np.float64  |  np.int64]]
-        a 1D input signal
+    arr : np.ndarray
+        A 1D input signal.
 
     Returns
     -------
-    tke: np.ndarray[Literal[1], np.dtype[np.float64]]
-        the Teager-Keiser energy
+    np.ndarray
+        The Teager-Keiser energy.
     """
     out = arr[1:-1] ** 2 - arr[2:] * arr[:-2]
     return np.concatenate([[out[0]], out, [out[-1]]]).astype(float)
@@ -1681,34 +1239,27 @@ def to_reference_frame(
     axis1: np.ndarray | list[float | int] = [1, 0, 0],
     axis2: np.ndarray | list[float | int] = [0, 1, 0],
     axis3: np.ndarray | list[float | int] = [0, 0, 1],
-):
+) -> DataFrame | np.ndarray:
     """
-    rotate a 3D array or dataframe to the provided reference frame.
+    Rotate a 3D array or dataframe to the provided reference frame.
 
     Parameters
     ----------
-    obj: DataFrame | np.ndarray
-        the 3D array or dataframe to be rotated.
-
-    origin: np.ndarray | list[float | int]
-        an array of len = 3 with the coordinates of the target origin
-
-    axis1: np.ndarray | list[float | int]
-        an array of len = 3 with the coordinates representing the orientation
-        of the first axis of the new reference frame
-
-    axis2: np.ndarray | list[float | int]
-        an array of len = 3 with the coordinates representing the orientation
-        of the second axis of the new reference frame
-
-    axis3: np.ndarray | list[float | int]
-        an array of len = 3 with the coordinates representing the orientation
-        of the third axis of the new reference frame
+    obj : DataFrame or np.ndarray
+        The 3D array or dataframe to be rotated.
+    origin : np.ndarray or list, optional
+        Coordinates of the target origin.
+    axis1 : np.ndarray or list, optional
+        Orientation of the first axis of the new reference frame.
+    axis2 : np.ndarray or list, optional
+        Orientation of the second axis of the new reference frame.
+    axis3 : np.ndarray or list, optional
+        Orientation of the third axis of the new reference frame.
 
     Returns
     -------
-    rotated: DataFrame | np.ndarray
-        the rotated data.
+    DataFrame or np.ndarray
+        The rotated data.
     """
 
     def _validate_array(arr: object):

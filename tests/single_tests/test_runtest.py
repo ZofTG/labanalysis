@@ -2,16 +2,12 @@
 
 #! IMPORTS
 
-import sys
-from os.path import abspath, dirname, join
-
-sys.path += [dirname(dirname(dirname(abspath(__file__))))]
-
-from src.labanalysis import (
-    RunningTest,
+from os.path import dirname, join
+from src.labanalysis.constants import (
     DEFAULT_MINIMUM_CONTACT_GRF_N,
     DEFAULT_MINIMUM_HEIGHT_PERCENTAGE,
 )
+from src.labanalysis.testprotocols.gaittests.runningtest import RunningTest
 
 #! MAIN
 

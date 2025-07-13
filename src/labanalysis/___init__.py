@@ -38,6 +38,5 @@ from .messages import *
 from .plotting import *
 from .regression import *
 from .signalprocessing import *
-from .testing import *
 from .testprotocols import *
 from .utils import *

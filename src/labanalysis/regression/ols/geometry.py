@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import sympy
 
-__all__ = ["GeometricObject", "Line2D", "Line3D"]
+__all__ = ["GeometricObject", "Line2D", "Line3D", "Circle"]
 
 
 #! CLASSES
@@ -485,7 +485,6 @@ class Line3D(GeometricObject):
         raise ValueError("Just one of 'x', 'y' or 'z' must be not None.")
 
 
-'''
 class Circle(GeometricObject):
     """
     circle object in a 2D space having general form:
@@ -610,6 +609,7 @@ class Circle(GeometricObject):
         raise ValueError("Just 'x' or 'y' must be not None.")
 
 
+'''
 class Parabola(GeometricObject):
     """
     'parabola' object in a 2D space having general form:
